@@ -1,0 +1,90 @@
+services:
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    image: sih-frontend
+    container_name: sih-frontend
+    ports:
+      - "5200:80"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: sih-backend
+    container_name: sih-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/sih_ps57
+      - SIH_SECRET_KEY=${SIH_SECRET_KEY:?set SIH_SECRET_KEY - python -c "import secrets; print(secrets.token_urlsafe(48))"}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL:-}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - QUEUE_MODE=celery
+      - DATA_DIR=/app/data
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    image: sih-backend
+    container_name: sih-worker
+    command: celery -A app.worker:celery_app worker --loglevel=info --pool=solo
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/sih_ps57
+      - SIH_SECRET_KEY=${SIH_SECRET_KEY:?set SIH_SECRET_KEY - python -c "import secrets; print(secrets.token_urlsafe(48))"}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL:-}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - QUEUE_MODE=celery
+      - DATA_DIR=/app/data
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: sih-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: sih_ps57
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sih_ps57"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: sih-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
+  app_data:
