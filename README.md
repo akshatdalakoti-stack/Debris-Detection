@@ -22,13 +22,17 @@ Side-scan sonar produces long greyscale waterfall images of the seabed. Somewher
 
 Two **YOLOv8s** heads ship with this project, both trained via staged transfer learning because no single sonar dataset is large enough to train from scratch:
 
-| Stage | Checkpoint | Trained on | mAP50 |
-|-------|------------|------------|-------|
-| 1 | `debris_fls_v1` | Marine Debris FLS (water tank) | 0.988 |
-| 2 | `sidescan_v1` | SCTD wrecks and aircraft | 0.625 |
-| 3 | `ghostgear_v1` | Ghost Pot side-scan | 0.310 |
+| Stage | Checkpoint | Sensor | Trained on | mAP50 | Ships? |
+|-------|------------|--------|------------|-------|--------|
+| 1 | `debris_fls_v1` | forward-looking | Marine Debris FLS (water tank) | 0.988 | no |
+| 2 | `sidescan_v1` | side-scan | SCTD wrecks and aircraft | 0.625 | **yes** |
+| 3 | `ghostgear_v1` | side-scan | Ghost Pot side-scan | 0.310 | **yes** |
 
-*(Note: Stage 1's 0.988 is a baseline from a controlled water tank with clean backgrounds. It serves as a transfer starting point, not a field performance metric.)*
+**These three numbers are not comparable to each other and only two of the checkpoints ship.**
+
+- Stage 1 is a transfer starting point, not a result. 0.988 comes from a controlled water tank with clean backgrounds, on a *different sensor* — forward-looking, not side-scan. No forward-looking head is in `weights/`, which is why `ml/router.py` flags forward-looking imagery rather than routing to one.
+- Stages 2 and 3 are what `weights/` contains and what the pipeline runs, both on side-scan.
+- mAP50 alone is not the operating figure. What matters for recovery tasking is precision and recall at the threshold the pipeline actually uses — see **Performance & Validation** below, and `ml/eval/evaluate.py`, which also reports false positives per km².
 
 ### Active Learning Uncertainty Queue
 Annotation is the bottleneck in sonar object detection. To solve this, the platform features a built-in **Active Learning Pipeline** that automatically scans the database for unlabelled `.xtf` or `.jpg` imagery. 
@@ -37,11 +41,12 @@ It ranks images by how much annotating them would teach the model using the form
 This guarantees that analysts spend their limited time labelling borderline, confusing cases rather than confirming what the model already knows confidently.
 
 ### Performance & Validation
-On the held-out ghost gear split, the pipeline runs at:
+On the held-out ghost gear split, at the `conf=0.20` the pipeline actually runs `ghostgear_v1` at:
 ```
 398 images, 567 targets
 precision 0.416   recall 0.330   F1 0.368
 ```
+Recall of 0.330 is the figure the cross-survey registry is designed around: two thirds of what is there is missed on any one pass, so a hazard that fails to appear once is not evidence it was recovered. `ml/registry.py` therefore needs two consecutive misses before it will mark anything gone.
 Because bounding box confidence alone does not perfectly separate right from wrong in sonar, the model acts as a highly-efficient **candidate generator**. It narrows an analyst's search dramatically before final review. 
 
 ---

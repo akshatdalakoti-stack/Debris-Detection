@@ -20,8 +20,11 @@ rather than left at the default.
 An important asymmetry: not detecting something is weak evidence. A pot missed
 because the tow line passed further away is indistinguishable from a pot that
 was recovered. So a single miss marks an entry UNCONFIRMED, and only repeated
-misses across separate surveys mark it GONE. Recall is 0.46 - one miss means
-almost nothing.
+misses across separate surveys mark it GONE. The measured recall on the
+held-out ghost gear split is 0.330 (398 images, 567 targets, conf 0.20) - so a
+single miss means almost nothing. That figure is the one in the README and in
+ml/pipeline.py; this file used to assert 0.46 instead, with nothing behind it,
+and the argument only gets stronger at the real number.
 """
 
 from __future__ import annotations
@@ -188,8 +191,8 @@ class Registry:
             else:
                 if e.status != UNCONFIRMED:
                     e.status = UNCONFIRMED
-                    e.note = ("missed once; detector recall is 0.46, so a single "
-                              "miss is not evidence of removal")
+                    e.note = ("missed once; measured detector recall is 0.33, "
+                              "so a single miss is not evidence of removal")
                     result.newly_unconfirmed.append(e)
 
         return result

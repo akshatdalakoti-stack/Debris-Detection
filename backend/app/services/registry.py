@@ -155,8 +155,8 @@ class RegistryService:
             else:
                 if e.status != UNCONFIRMED:
                     e.status = UNCONFIRMED
-                    e.note = ("missed once; detector recall is 0.46, so a single "
-                              "miss is not evidence of removal")
+                    e.note = ("missed once; measured detector recall is 0.33, "
+                              "so a single miss is not evidence of removal")
 
         self.db.commit()
         return resolved
