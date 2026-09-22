@@ -86,7 +86,11 @@ def get_summary(job_id: int, db: Session = Depends(get_db)) -> JobSummary:
         job_id=job_id,
         total=sum(count for _, count in rows),
         by_class=dict(rows),
-        area_covered=0.0,
+        # Was hardcoded 0.0 - a placeholder that shipped. The pipeline now
+        # reports the searched area and the worker stores it; km2 is what the
+        # UI formats, and 0.0 still means "unknown", which is what it already
+        # treats as "do not show".
+        area_covered=round((job.area_covered_m2 or 0.0) / 1_000_000, 6),
         processing_ms=job.processing_ms,
     )
 

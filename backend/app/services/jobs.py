@@ -85,6 +85,8 @@ def process_job(job_id: int) -> None:
 
         job.overlay_path = result["overlay_path"]
         job.processing_ms = result["processing_ms"]
+        coverage = result.get("coverage")
+        job.area_covered_m2 = coverage["area_m2"] if coverage else None
         job.progress = 100
         job.status = "done"
         job.finished_at = utc_now()

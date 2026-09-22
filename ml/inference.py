@@ -233,11 +233,35 @@ def run_inference(file_path: str, config: dict | None = None,
         detections=[Detection.from_dict(d) for d in merged],
         overlay_path=overlay_path,
         model_version="+".join(sorted(d.version for d, _ in detectors.values())),
+        coverage=_coverage(sonar),
     ).to_dict()
 
     validate_result(result)   # never hand the backend an off-contract payload
     report("stored", 100)
     return result
+
+
+def _coverage(sonar) -> dict[str, float] | None:
+    """Seabed area this line searched, in metres.
+
+    Swath times track length. Both scales come from the file's own geometry -
+    the across-track one from the slant range and altitude, the along-track one
+    from the distance between consecutive fixes - so a file without navigation
+    returns None rather than a number that would be invented.
+
+    This is the searched area, not the detected area: it is what makes "nothing
+    found" mean something. Zero detections over 0.2 km2 and zero over 40 km2
+    are very different results and the API reported neither.
+    """
+    swath_m = sonar.ground_range_per_px_m * sonar.width
+    track_m = sonar.along_track_per_px_m * sonar.height
+    if swath_m <= 0 or track_m <= 0:
+        return None
+    return {
+        "swath_m": round(swath_m, 1),
+        "track_length_m": round(track_m, 1),
+        "area_m2": round(swath_m * track_m, 1),
+    }
 
 
 def _clip_to_image(dets: list[dict], width: int, height: int) -> list[dict]:

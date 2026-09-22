@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -275,12 +276,26 @@ def read_xtf(path: str | Path, *, max_pings: int | None = None) -> SurveyLine:
     else:
         notes.append("no slant range recorded; detections cannot be sized in metres")
 
+    # along-track scale: how far the fish actually travelled between pings.
+    # This was never set for a real survey file - only the synthetic track
+    # filled it in, from speed x ping rate - so anything downstream that wanted
+    # the length of a line, or the area it covered, had nothing to work from on
+    # exactly the files that carry the answer. The fixes are right here, so
+    # measure the track rather than assuming a constant speed: a survey vessel
+    # slows in a turn, and the ping rate does not.
+    track_m = 0.0
+    if len(nav) > 1:
+        for a, b in pairwise(nav):
+            track_m += _haversine_m(a.lat, a.lon, b.lat, b.lon)
+        sonar.along_track_per_px_m = track_m / (len(nav) - 1)
+
     sonar.meta.update({
         "navigation": "REAL (from XTF ping headers)",
         "source_file": path.name,
         "slant_range_m": slant,
         "altitude_m": altitude,
         "swath_m": round(2.0 * math.sqrt(max(slant**2 - altitude**2, 0.0)), 1),
+        "track_length_m": round(track_m, 1),
     })
 
     return SurveyLine(
@@ -290,6 +305,16 @@ def read_xtf(path: str | Path, *, max_pings: int | None = None) -> SurveyLine:
         frequency_hz=float(np.median(frequencies)) if frequencies else None,
         notes=notes,
     )
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in metres between two fixes."""
+    r = 6_371_008.8
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
 
 
 def _main() -> int:

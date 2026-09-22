@@ -4,8 +4,12 @@ This module is the single source of truth for the shape of everything the ML
 track hands to the backend. Harshit imports `validate_result` in his tests;
 if his code passes and this module is unchanged, the integration cannot drift.
 
-CONTRACT VERSION: 1.0.0  (frozen at model-contract-freeze checkpoint)
+CONTRACT VERSION: 1.1.0
 Any change here must be announced in the group BEFORE it is pushed.
+
+1.1.0 adds `coverage`, an optional top-level key. Additive only: it has a
+default, validate_result does not require it, and a 1.0.0 payload still
+validates unchanged. Nothing that reads the 1.0.0 keys needs to change.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 # Frozen class list. Index == YOLO class id. Must match configs/data.yaml.
 CLASSES: list[str] = [
@@ -70,6 +74,10 @@ class InferenceResult:
     detections: list[Detection] = field(default_factory=list)
     overlay_path: str | None = None
     model_version: str = "unset"
+    # How much seabed this line actually searched. None when the file carries
+    # no navigation, which is the honest answer - a bare .png has no geography
+    # and therefore no area. Keys: swath_m, track_length_m, area_m2.
+    coverage: dict[str, float] | None = None
     contract_version: str = CONTRACT_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,6 +89,7 @@ class InferenceResult:
             "detections": [d.to_dict() for d in self.detections],
             "overlay_path": self.overlay_path,
             "model_version": self.model_version,
+            "coverage": self.coverage,
             "contract_version": self.contract_version,
         }
 
@@ -142,3 +151,14 @@ def validate_result(payload: dict[str, Any]) -> None:
             val = det.get(geo_key)
             if val is not None and not lo <= val <= hi:
                 raise ContractError(f"{where}.{geo_key} out of range: {val}")
+
+    coverage = payload.get("coverage")
+    if coverage is not None:
+        if not isinstance(coverage, dict):
+            raise ContractError("coverage must be an object or null")
+        for key in ("swath_m", "track_length_m", "area_m2"):
+            val = coverage.get(key)
+            if val is None:
+                continue
+            if not isinstance(val, (int, float)) or val < 0:
+                raise ContractError(f"coverage.{key} must be a non-negative number")

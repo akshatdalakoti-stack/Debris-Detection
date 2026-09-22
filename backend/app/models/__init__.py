@@ -80,6 +80,9 @@ class Job(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     overlay_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     processing_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Seabed searched by this file, in square metres. Null when the file
+    # carried no navigation - a bare .png has no geography and so no area.
+    area_covered_m2: Mapped[float | None] = mapped_column(Float, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)

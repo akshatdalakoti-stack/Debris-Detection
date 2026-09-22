@@ -450,3 +450,47 @@ def test_every_harm_weight_is_either_a_contract_class_or_a_model_label():
             f"{name!r} weighs {weight} but maps to {mapped!r} which weighs "
             f"{HARM[mapped]} - the mapping would silently change the score"
         )
+
+
+# --- coverage --------------------------------------------------------------
+
+def test_coverage_is_none_without_navigation():
+    """A bare .png has no geography, so it has no area. Reporting a number
+    there would be inventing one."""
+    import numpy as np
+
+    from ml.inference import _coverage
+    from ml.interfaces import SonarImage
+
+    assert _coverage(SonarImage(image=np.zeros((100, 100), np.uint8),
+                                image_id="png")) is None
+
+
+def test_coverage_is_swath_times_track_length():
+    import numpy as np
+
+    from ml.inference import _coverage
+    from ml.interfaces import SonarImage
+    from ml.survey import attach_track
+
+    sonar = SonarImage(image=np.zeros((2000, 1024), np.uint8), image_id="line")
+    attach_track(sonar)
+    cover = _coverage(sonar)
+
+    assert cover["swath_m"] == pytest.approx(sonar.meta["swath_m"], abs=0.2)
+    # The components are reported to 0.1 m and the area is computed at full
+    # precision, so they agree to about that, not exactly.
+    assert cover["area_m2"] == pytest.approx(
+        cover["swath_m"] * cover["track_length_m"], rel=1e-3)
+
+
+def test_a_coverage_block_is_contract_valid_and_optional():
+    """1.1.0 is additive: a 1.0.0 payload with no coverage still validates."""
+    validate_result(payload())                       # no coverage key at all
+    validate_result(payload(coverage=None))
+    validate_result(payload(coverage={"swath_m": 148.1, "track_length_m": 411.6,
+                                      "area_m2": 60938.0}))
+    with pytest.raises(ContractError):
+        validate_result(payload(coverage={"area_m2": -1}))
+    with pytest.raises(ContractError):
+        validate_result(payload(coverage="0.06 km2"))
