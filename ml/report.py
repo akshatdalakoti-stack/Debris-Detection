@@ -11,6 +11,7 @@ table an analyst opens in a spreadsheet or loads into GIS.
 from __future__ import annotations
 
 import csv
+import io
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,31 +92,44 @@ def write_json(report: dict[str, Any], path: str | Path) -> Path:
     return path
 
 
+CSV_FIELDS = [
+    "anomaly_id", "classification", "confidence_pct",
+    "latitude", "longitude", "length_m",
+    "bbox_x", "bbox_y", "bbox_width", "bbox_height",
+    "frame_index", "survey", "navigation_source",
+]
+
+
+def to_csv(report: dict[str, Any]) -> str:
+    """Flat one-row-per-anomaly table for spreadsheets and GIS import.
+
+    Returns the text rather than writing it. The API serves this straight down
+    the response, and routing that through a temporary file on disk only added
+    a way to leave one behind.
+    """
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=CSV_FIELDS)
+    writer.writeheader()
+    for a in report["anomalies"]:
+        b = a["bbox_pixels"]
+        writer.writerow({
+            "anomaly_id": a["anomaly_id"],
+            "classification": a["classification"],
+            "confidence_pct": a["confidence_pct"],
+            "latitude": a["latitude"],
+            "longitude": a["longitude"],
+            "length_m": a["dimensions_m"]["length"],
+            "bbox_x": b["x"], "bbox_y": b["y"],
+            "bbox_width": b["width"], "bbox_height": b["height"],
+            "frame_index": a["frame_index"],
+            "survey": report["survey"]["name"],
+            "navigation_source": report["survey"]["navigation_source"],
+        })
+    return buffer.getvalue()
+
+
 def write_csv(report: dict[str, Any], path: str | Path) -> Path:
-    """Flat one-row-per-anomaly table for spreadsheets and GIS import."""
+    """to_csv(), written to `path`. Kept for the demo CLI."""
     path = Path(path)
-    fields = [
-        "anomaly_id", "classification", "confidence_pct",
-        "latitude", "longitude", "length_m",
-        "bbox_x", "bbox_y", "bbox_width", "bbox_height",
-        "frame_index", "survey", "navigation_source",
-    ]
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        for a in report["anomalies"]:
-            b = a["bbox_pixels"]
-            w.writerow({
-                "anomaly_id": a["anomaly_id"],
-                "classification": a["classification"],
-                "confidence_pct": a["confidence_pct"],
-                "latitude": a["latitude"],
-                "longitude": a["longitude"],
-                "length_m": a["dimensions_m"]["length"],
-                "bbox_x": b["x"], "bbox_y": b["y"],
-                "bbox_width": b["width"], "bbox_height": b["height"],
-                "frame_index": a["frame_index"],
-                "survey": report["survey"]["name"],
-                "navigation_source": report["survey"]["navigation_source"],
-            })
+    path.write_text(to_csv(report), encoding="utf-8", newline="")
     return path

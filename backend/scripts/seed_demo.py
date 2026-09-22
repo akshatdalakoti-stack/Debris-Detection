@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from sqlalchemy import select
 
 from app.config import settings
 from app.db import Base, SessionLocal, engine
-from app.models import Detection, Job, Survey, SurveyFile
+from app.models import Detection, Job, Survey, SurveyFile, utc_now
 from app.services.inference import run_fake_inference
 
 
@@ -40,7 +39,7 @@ def seed_demo() -> int:
             file_id=uploaded_file.id,
             status="processing",
             progress=80,
-            started_at=datetime.utcnow(),
+            started_at=utc_now(),
         )
         db.add(job)
         db.flush()
@@ -67,7 +66,7 @@ def seed_demo() -> int:
         job.processing_ms = result["processing_ms"]
         job.progress = 100
         job.status = "done"
-        job.finished_at = datetime.utcnow()
+        job.finished_at = utc_now()
         db.commit()
         return survey.id
     finally:

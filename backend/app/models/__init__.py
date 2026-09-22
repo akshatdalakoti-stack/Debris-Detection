@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,7 +9,14 @@ from ..db import Base
 
 
 def utc_now() -> datetime:
-    return datetime.utcnow()
+    """UTC, as a naive datetime.
+
+    datetime.utcnow() is deprecated from 3.12 and was always a trap: it returns
+    a naive value that *looks* local. Every timestamp column here is naive, so
+    the tzinfo is dropped deliberately rather than by accident - making them
+    aware would mean a migration, and comparing aware to naive raises.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # Ordered least to most privileged; a check is "at least this role".

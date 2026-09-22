@@ -1,13 +1,10 @@
-import json
-import os
-import tempfile
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_viewer
 from ..models import Survey, Job, Detection, SurveyFile
-from ml.report import build_report, write_csv
+from ml.report import build_report, to_csv
 
 router = APIRouter(prefix="/api/surveys", tags=["reports"],
                    dependencies=[Depends(require_viewer)])
@@ -58,18 +55,14 @@ def get_survey_report(
 
     if format == "json":
         return report
-    elif format == "csv":
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as tmp:
-            tmp_path = tmp.name
-        
-        write_csv(report, tmp_path)
-        
-        with open(tmp_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        os.remove(tmp_path)
-        
-        return Response(
-            content=content, 
-            media_type="text/csv", 
-            headers={"Content-Disposition": f"attachment; filename=survey_{survey_id}_report.csv"}
-        )
+
+    # Built in memory. This used to write a NamedTemporaryFile with
+    # delete=False, read it back and unlink it - so any exception between the
+    # write and the remove left the file on disk, and the report carries every
+    # position in the survey.
+    return Response(
+        content=to_csv(report),
+        media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="survey_{survey_id}_report.csv"'},
+    )

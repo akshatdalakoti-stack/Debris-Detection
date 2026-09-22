@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..deps import get_current_user, require_admin
-from ..models import ROLES, User
+from ..models import utc_now, ROLES, User
 from ..security import create_access_token, hash_password, verify_password
 
 log = logging.getLogger(__name__)
@@ -156,7 +156,7 @@ def login(body: LoginRequest, request: Request,
     # A success clears the counter, so one fat-fingered password does not
     # count against someone for the rest of the window.
     _clear_rate_limit(request)
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = utc_now()
     db.commit()
     log.info("signed in: %s (%s)", user.email, user.role)
 

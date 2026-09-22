@@ -27,7 +27,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
 )
 
-@asynccontextmanager
 def _bootstrap_admin() -> None:
     """Create the first admin, once, from the environment.
 
@@ -58,6 +57,7 @@ def _bootstrap_admin() -> None:
         db.close()
 
 
+@asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.ensure_directories()
     # Retry DB connection — PostGIS runs extension setup after pg_isready
@@ -70,7 +70,8 @@ async def lifespan(_: FastAPI):
             if attempt == 9:
                 raise
             wait = 2 ** attempt  # 1s, 2s, 4s, 8s…
-            print(f"DB not ready (attempt {attempt + 1}/10): {exc}. Retrying in {wait}s…")
+            log.warning("database not ready (attempt %d/10): %s - retrying in %ds",
+                        attempt + 1, exc, wait)
             time.sleep(wait)
     _bootstrap_admin()
     yield

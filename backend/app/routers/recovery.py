@@ -7,7 +7,8 @@ from ..db import get_db
 from ..deps import require_analyst, require_viewer
 from ..models import RegistryEntry, User
 from ml.recovery import plan_recovery, day_plan
-from ml.enrich import enrich_detection, to_dict as context_to_dict
+from ml.enrich import to_dict as context_to_dict
+from ..services.enrichment import cached_enrich
 from ml.risk import score_detection, to_dict as risk_to_dict
 
 router = APIRouter(prefix="/api/recovery", tags=["recovery"],
@@ -18,8 +19,9 @@ class DayPlanRequest(BaseModel):
     hours_available: float = 8.0
 
 def _get_plan_and_risk(e: RegistryEntry):
-    # This might make API calls if not cached internally by enrich_detection
-    ctx = enrich_detection(e.lat, e.lon, navigation_is_real=True)
+    # Through the shared cache. A day plan calls this once per hazard, and the
+    # live lookup this used to make is two network round trips each.
+    ctx = cached_enrich(e.lat, e.lon)
     depth_m = ctx.depth_m if ctx else None
     
     transit_hours = None

@@ -329,3 +329,15 @@ def test_the_checkpoint_fingerprint_is_computed_once(tmp_path, monkeypatch):
     # If it were still hashing on demand, losing the file would break this.
     checkpoint.unlink()
     assert detector.version == first
+
+
+def test_a_report_renders_to_csv_without_a_file():
+    """The API serves this straight down the response."""
+    from ml.report import CSV_FIELDS, build_report, to_csv
+
+    report = build_report(payload(), survey_name="S", navigation_source="test",
+                          model_version="test-0")
+    text = to_csv(report)
+    header, *rows = text.strip().splitlines()
+    assert header.split(",") == CSV_FIELDS
+    assert len(rows) == len(report["anomalies"]) == 1

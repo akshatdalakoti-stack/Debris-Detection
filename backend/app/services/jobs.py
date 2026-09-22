@@ -3,41 +3,17 @@ from __future__ import annotations
 import json
 import logging
 
-import redis
-from datetime import datetime
-
 from sqlalchemy import delete
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import Detection, Job
+from ..models import utc_now, Detection, Job
 from ml.inference import run_inference
-from ml.enrich import enrich_detection, Context, to_dict as ctx_dict
 from ml.risk import score_detection
+from .enrichment import cached_enrich
 from .registry import RegistryService
 
 log = logging.getLogger(__name__)
-
-redis_client = redis.Redis.from_url(settings.redis_url)
-
-def cached_enrich(lat: float | None, lon: float | None) -> Context | None:
-    if lat is None or lon is None:
-        return None
-    key = f"enrich:{round(lat, 4)}:{round(lon, 4)}"
-    try:
-        cached = redis_client.get(key)
-        if cached:
-            return Context(**json.loads(cached))
-    except Exception:
-        pass  # fallback to active lookup if redis fails
-
-    ctx = enrich_detection(lat, lon, navigation_is_real=True)
-    if ctx:
-        try:
-            redis_client.setex(key, 86400 * 7, json.dumps(ctx_dict(ctx)))
-        except Exception:
-            pass
-    return ctx
 
 
 def process_job(job_id: int) -> None:
@@ -49,7 +25,7 @@ def process_job(job_id: int) -> None:
 
         job.status = "processing"
         job.progress = 10
-        job.started_at = datetime.utcnow()
+        job.started_at = utc_now()
         job.error = None
         db.commit()
 
@@ -98,7 +74,7 @@ def process_job(job_id: int) -> None:
         job.processing_ms = result["processing_ms"]
         job.progress = 100
         job.status = "done"
-        job.finished_at = datetime.utcnow()
+        job.finished_at = utc_now()
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -112,7 +88,7 @@ def process_job(job_id: int) -> None:
         if job is not None:
             job.status = "failed"
             job.error = f"{type(exc).__name__}: processing failed (job {job_id})"
-            job.finished_at = datetime.utcnow()
+            job.finished_at = utc_now()
             db.commit()
     finally:
         db.close()

@@ -110,3 +110,33 @@ def test_upload_validation(client: TestClient) -> None:
         files={"file": ("empty.png", b"", "image/png")},
     )
     assert empty.status_code == 400
+
+
+def test_registry_listing_is_paged(client: TestClient) -> None:
+    """The registry is the one table with no ceiling - an entry per hazard per
+    survey, never pruned - so the endpoint must not select all of it."""
+    response = client.get("/api/registry", params={"limit": 10})
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) >= {"entries", "total", "limit", "offset"}
+    assert body["limit"] == 10
+    assert len(body["entries"]) <= 10
+
+    assert client.get("/api/registry", params={"limit": 0}).status_code == 422
+    assert client.get("/api/registry", params={"limit": 99999}).status_code == 422
+
+
+def test_survey_report_csv_is_built_without_touching_disk(client: TestClient) -> None:
+    import tempfile
+    from pathlib import Path
+
+    survey_id = client.post("/api/surveys", json={"name": "Report survey"}).json()["id"]
+    before = set(Path(tempfile.gettempdir()).glob("*.csv"))
+
+    response = client.get(f"/api/surveys/{survey_id}/report", params={"format": "csv"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "anomaly_id" in response.text
+
+    # It used to write a NamedTemporaryFile(delete=False) and unlink it by hand.
+    assert set(Path(tempfile.gettempdir()).glob("*.csv")) == before
