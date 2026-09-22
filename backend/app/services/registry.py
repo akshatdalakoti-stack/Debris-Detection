@@ -1,6 +1,7 @@
 import json
 import math
 from datetime import date
+from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
@@ -31,14 +32,43 @@ class RegistryService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _next_id(self) -> str:
-        count = self.db.query(RegistryEntry).count()
-        return f"HZ-{count + 1:05d}"
+    def _add_with_hazard_id(self, **fields) -> RegistryEntry:
+        """Insert an entry and give it a hazard id derived from its own key.
+
+        The id used to be f"HZ-{count + 1:05d}". hazard_id is UNIQUE, so that
+        collided two ways: delete any entry and the next insert reuses a live
+        id, and two workers reconciling different surveys at the same moment
+        both read the same count and one of them fails the constraint - taking
+        a whole job down with it. The primary key comes from a sequence, so
+        deriving from it after the flush is unique without coordinating.
+        """
+        entry = RegistryEntry(hazard_id=f"pending-{uuid4()}", **fields)
+        self.db.add(entry)
+        self.db.flush()                  # assigns the primary key
+        entry.hazard_id = f"HZ-{entry.id:05d}"
+        self.db.flush()
+        return entry
 
     def _nearest(self, lat: float, lon: float, cls: str) -> RegistryEntry | None:
+        """Closest entry of the same class inside MATCH_RADIUS_M, or None.
+
+        The haversine has to run in Python, but it no longer runs over the whole
+        class. A bounding box in SQL cuts it down first - this is called once
+        per detection, so it was a full scan of the table per box, and the
+        registry is the one table here that only ever grows.
+        """
+        # Latitude is ~111.32 km/degree everywhere; longitude shrinks with
+        # cos(lat). Generous by design - the box only has to contain the circle,
+        # and the haversine below does the real test.
+        d_lat = MATCH_RADIUS_M / 111_320.0
+        cos_lat = max(math.cos(math.radians(lat)), 1e-6)
+        d_lon = MATCH_RADIUS_M / (111_320.0 * cos_lat)
+
         entries = self.db.query(RegistryEntry).filter(
             RegistryEntry.class_name == cls,
-            RegistryEntry.status != RECOVERED
+            RegistryEntry.status != RECOVERED,
+            RegistryEntry.lat.between(lat - d_lat, lat + d_lat),
+            RegistryEntry.lon.between(lon - d_lon, lon + d_lon),
         ).all()
 
         best, best_d = None, MATCH_RADIUS_M
@@ -77,18 +107,15 @@ class RegistryService:
 
                 matched.add(hit.hazard_id)
             else:
-                new_entry = RegistryEntry(
-                    hazard_id=self._next_id(),
+                new_entry = self._add_with_hazard_id(
                     class_name=cls,
                     lat=lat,
                     lon=lon,
                     first_seen=when,
                     last_seen=when,
                     best_confidence=conf,
-                    surveys=json.dumps([survey])
+                    surveys=json.dumps([survey]),
                 )
-                self.db.add(new_entry)
-                self.db.flush()
                 matched.add(new_entry.hazard_id)
 
         # anything covered by this survey but not matched counts as a miss

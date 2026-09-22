@@ -151,3 +151,12 @@ class RegistryEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
 
+# Reconciliation asks "any entry of this class near this point" once per
+# detection. The bounding-box filter in services/registry.py narrows on
+# class_name first and then lat/lon, so that is the column order.
+Index(
+    "ix_registry_entries_class_lat_lon",
+    RegistryEntry.class_name,
+    RegistryEntry.lat,
+    RegistryEntry.lon,
+)
