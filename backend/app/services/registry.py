@@ -1,10 +1,10 @@
 import json
 import math
 from datetime import date
+
 from sqlalchemy.orm import Session
 
 from ..models import RegistryEntry
-
 
 MATCH_RADIUS_M = 25.0        # positional tolerance when matching to the registry
 MISSES_TO_GONE = 2           # consecutive surveys missing before presumed removed
@@ -69,12 +69,12 @@ class RegistryService:
                 hit.consecutive_misses = 0
                 hit.status = PRESENT
                 hit.best_confidence = max(hit.best_confidence, conf)
-                
+
                 surveys = json.loads(hit.surveys)
                 if survey not in surveys:
                     surveys.append(survey)
                     hit.surveys = json.dumps(surveys)
-                
+
                 matched.add(hit.hazard_id)
             else:
                 new_entry = RegistryEntry(
@@ -95,13 +95,13 @@ class RegistryService:
         all_live = self.db.query(RegistryEntry).filter(
             ~RegistryEntry.status.in_([GONE, RECOVERED])
         ).all()
-        
+
         for e in all_live:
             if e.hazard_id in matched:
                 continue
             if covered is not None and e.hazard_id not in covered:
                 continue  # survey never went near it
-            
+
             e.consecutive_misses += 1
             if e.class_name in IMMOVABLE:
                 if e.status != UNCONFIRMED:

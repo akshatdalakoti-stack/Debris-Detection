@@ -156,11 +156,11 @@ class ReferencePostProcessor:
             x, y, w, h = d["bbox"]
             row = int(min(max(y + h / 2.0, 0), sonar.height - 1))
             size_m = round(w * sonar.ground_range_per_px_m, 2)
-            
+
             if not sonar.nav:
                 out.append({**d, "size_m": size_m, "frame_index": row})
                 continue
-                
+
             nav = _nearest_nav(sonar.nav, row)
             across_px = (x + w / 2.0) - centre_x           # +starboard, -port
             across_m = across_px * sonar.ground_range_per_px_m

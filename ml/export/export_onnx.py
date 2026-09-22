@@ -52,7 +52,7 @@ def parity_check(pt_weights: str, onnx_path: Path, images: list[Path],
             print(f"  MISMATCH {img.name}: pytorch {len(a)} boxes, onnx {len(b)}")
             ok = False
             continue
-        for (xa, ca), (xb, cb) in zip(a, b):
+        for (xa, ca), (xb, cb) in zip(a, b, strict=True):
             if np.max(np.abs(np.array(xa) - np.array(xb))) > 2.0 or abs(ca - cb) > 0.02:
                 print(f"  MISMATCH {img.name}: box/conf drift "
                       f"{np.max(np.abs(np.array(xa) - np.array(xb))):.2f}px "

@@ -208,7 +208,12 @@ def run_inference(file_path: str, config: dict | None = None,
         for i in range(0, len(tiles), batch_size):
             chunk = tiles[i : i + batch_size]
             per_tile.extend(head_detector.predict_tiles([t.image for t in chunk]))
-        stitched = post.stitch(list(zip(tiles, per_tile)), iou_threshold=stitch_iou)
+        # strict: one detection list per tile, in order. Plain zip() truncates
+        # to the shorter side, so a head that returned a short list would drop
+        # the trailing tiles' detections without anything being raised - the
+        # bottom of a survey line quietly going unsearched.
+        stitched = post.stitch(list(zip(tiles, per_tile, strict=True)),
+                               iou_threshold=stitch_iou)
         per_head.append([d for d in stitched if d["confidence"] >= head_conf])
 
     merged = _merge_heads(per_head, cfg.get("head_merge_iou", 0.55))
@@ -256,10 +261,10 @@ def _write_overlay(image: np.ndarray, dets: list[dict], image_id: str,
 
     out_dir.mkdir(parents=True, exist_ok=True)
     canvas = Image.fromarray(image).convert("RGB")
-    
+
     # We no longer burn bounding boxes into the image because the frontend
     # React app draws interactive, selectable SVG bounding boxes on top of it.
-    
+
     path = out_dir / f"{image_id}_processed.png"
     canvas.save(path)
     return str(path)

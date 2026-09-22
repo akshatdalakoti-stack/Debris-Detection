@@ -1,5 +1,7 @@
 # Marine Debris Detection from Side-Scan Sonar Imagery
 
+[![CI](https://github.com/akshatdalakoti-stack/Debris-Detection/actions/workflows/ci.yml/badge.svg)](https://github.com/akshatdalakoti-stack/Debris-Detection/actions/workflows/ci.yml)
+
 Side-scan sonar produces long greyscale waterfall images of the seabed. Somewhere in them are tyres, oil drums, lost fishing gear and wrecks. This project finds them, puts a latitude and longitude on each one, works out how deep it is and how long it would take to recover, tracks what changes between surveys, and shows the result on an interactive map.
 
 ---

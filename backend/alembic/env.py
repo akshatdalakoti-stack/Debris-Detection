@@ -17,9 +17,9 @@ from sqlalchemy import engine_from_config, pool
 # alembic runs this file directly, so the package has to be importable.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.config import settings          # noqa: E402
-from app.db import Base                  # noqa: E402
-from app import models                   # noqa: E402,F401  (registers the tables)
+from app import models  # noqa: F401  (registers the tables)
+from app.config import settings
+from app.db import Base
 
 # On SQLite the URL points at a file, and sqlite will not create the directory
 # holding it. The app does this at startup; a migration on a fresh machine runs

@@ -15,7 +15,6 @@ from ..deps import require_viewer
 from ..models import Detection, Job
 from ..schemas import DetectionPage, DetectionRead, JobRead, JobSummary
 
-
 router = APIRouter(prefix="/api/jobs", tags=["jobs"],
                    dependencies=[Depends(require_viewer)])
 
@@ -86,7 +85,7 @@ def get_summary(job_id: int, db: Session = Depends(get_db)) -> JobSummary:
     return JobSummary(
         job_id=job_id,
         total=sum(count for _, count in rows),
-        by_class={class_name: count for class_name, count in rows},
+        by_class=dict(rows),
         area_covered=0.0,
         processing_ms=job.processing_ms,
     )

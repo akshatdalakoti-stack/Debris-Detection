@@ -5,7 +5,6 @@ from celery import Celery
 from .config import settings
 from .services.jobs import process_job
 
-
 celery_app = Celery(
     "debris_detection",
     broker=settings.redis_url,

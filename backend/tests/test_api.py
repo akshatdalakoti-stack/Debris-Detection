@@ -1,13 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import io
+
 import pytest
-from PIL import Image
 from fastapi.testclient import TestClient
-
-from app.main import app
-
-
+from PIL import Image
 
 
 @pytest.fixture
@@ -35,6 +33,16 @@ def test_survey_history_and_error_shape(client: TestClient) -> None:
     assert missing_job_response.json() == {"message": "Job not found"}
 
 
+# The pipeline needs ultralytics and the checkpoints. Skipped rather than
+# failed where they are absent: a missing optional dependency reported as
+# `assert 'failed' == 'done'` sends you looking for a bug in the API.
+needs_model = pytest.mark.skipif(
+    importlib.util.find_spec("ultralytics") is None,
+    reason="ultralytics is not installed - end-to-end inference cannot run",
+)
+
+
+@needs_model
 def test_upload_processing_and_exports(client: TestClient) -> None:
     survey_response = client.post("/api/surveys", json={"name": "Demo survey"})
     assert survey_response.status_code == 201
@@ -55,7 +63,7 @@ def test_upload_processing_and_exports(client: TestClient) -> None:
 
     job_response = client.get(f"/api/jobs/{job_id}")
     assert job_response.status_code == 200
-    assert job_response.json()["status"] == "done"
+    assert job_response.json()["status"] == "done", job_response.json().get("error")
     assert job_response.json()["progress"] == 100
 
     detections_response = client.get(

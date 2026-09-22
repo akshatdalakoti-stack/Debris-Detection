@@ -16,7 +16,7 @@ and argue with is worth more here than a number nobody can question.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 # What the object does if it is left where it is. Ghost gear scores highest
 # because it keeps killing: an abandoned pot re-baits itself with whatever it

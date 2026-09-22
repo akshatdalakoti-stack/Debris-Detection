@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
+from ml.report import build_report, to_csv
+
 from ..db import get_db
 from ..deps import require_viewer
-from ..models import Survey, Job, Detection, SurveyFile
-from ml.report import build_report, to_csv
+from ..models import Detection, Job, Survey, SurveyFile
 
 router = APIRouter(prefix="/api/surveys", tags=["reports"],
                    dependencies=[Depends(require_viewer)])

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 

@@ -1,15 +1,18 @@
 from datetime import date
-from pydantic import BaseModel
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
+from ml.enrich import to_dict as context_to_dict
+from ml.recovery import day_plan, plan_recovery
+from ml.risk import score_detection
+from ml.risk import to_dict as risk_to_dict
 
 from ..db import get_db
 from ..deps import require_analyst, require_viewer
 from ..models import RegistryEntry, User
-from ml.recovery import plan_recovery, day_plan
-from ml.enrich import to_dict as context_to_dict
 from ..services.enrichment import cached_enrich
-from ml.risk import score_detection, to_dict as risk_to_dict
 
 router = APIRouter(prefix="/api/recovery", tags=["recovery"],
                    dependencies=[Depends(require_viewer)])
@@ -23,13 +26,13 @@ def _get_plan_and_risk(e: RegistryEntry):
     # live lookup this used to make is two network round trips each.
     ctx = cached_enrich(e.lat, e.lon)
     depth_m = ctx.depth_m if ctx else None
-    
+
     transit_hours = None
     if ctx and ctx.nearest_port:
         transit_hours = ctx.nearest_port.get("transit_hours")
-    
+
     age_days = (date.today() - date.fromisoformat(e.first_seen)).days
-    
+
     plan = plan_recovery(
         hazard_id=e.hazard_id,
         cls=e.class_name,
@@ -37,7 +40,7 @@ def _get_plan_and_risk(e: RegistryEntry):
         transit_hours=transit_hours,
         age_days=age_days
     )
-    
+
     risk = score_detection(e.class_name, e.best_confidence, ctx)
     return plan, risk, ctx
 
@@ -46,7 +49,7 @@ def get_recovery_plan(hazard_id: str, db: Session = Depends(get_db)):
     e = db.query(RegistryEntry).filter(RegistryEntry.hazard_id == hazard_id).first()
     if not e:
         raise HTTPException(status_code=404, detail="Hazard not found")
-        
+
     plan, risk, ctx = _get_plan_and_risk(e)
     # Depth, risk and the enrichment were computed to build the plan and then
     # thrown away, which left the UI with nothing to show about a hazard beyond
@@ -63,11 +66,11 @@ def create_day_plan(req: DayPlanRequest, db: Session = Depends(get_db),
     entries = db.query(RegistryEntry).filter(RegistryEntry.hazard_id.in_(req.hazard_ids)).all()
     if not entries:
         raise HTTPException(status_code=404, detail="No matching hazards found")
-        
+
     plans_with_risk = []
     for e in entries:
         plan, risk, _ctx = _get_plan_and_risk(e)
         plans_with_risk.append((plan, risk.score))
-        
+
     result = day_plan(plans_with_risk, hours_available=req.hours_available)
     return result

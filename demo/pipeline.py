@@ -32,12 +32,14 @@ HERE = Path(__file__).parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 
-from ml.pipeline import HEADS, load_models                    # noqa: E402
-from ml.interfaces import SonarImage, ReferencePostProcessor, _nms  # noqa: E402
-from ml.survey import attach_track                            # noqa: E402
-from ml.report import build_report, write_json, write_csv     # noqa: E402
-from ml.enrich import enrich_detection, to_dict as ctx_dict   # noqa: E402
-from ml.risk import score_detection, to_dict as risk_dict     # noqa: E402
+from ml.enrich import enrich_detection
+from ml.enrich import to_dict as ctx_dict
+from ml.interfaces import ReferencePostProcessor, SonarImage, _nms
+from ml.pipeline import HEADS, load_models
+from ml.report import build_report, write_csv, write_json
+from ml.risk import score_detection
+from ml.risk import to_dict as risk_dict
+from ml.survey import attach_track
 
 TILE_PX = 640           # the size the model was trained at
 TILE_OVERLAP = 0.20     # so a target on a seam is whole in the next tile
@@ -245,7 +247,7 @@ def process(image_path: Path, models, survey="DEMO-LINE-01",
               f"{report['summary']['geotagged']} geotagged:")
         print(f"    {'CLASS':<14}{'HEAD':<11}{'CONF':>7}"
               f"{'LATITUDE':>13}{'LONGITUDE':>13}{'LEN(m)':>9}")
-        for a, det in zip(report["anomalies"], detections):
+        for a, det in zip(report["anomalies"], detections, strict=True):
             print(f"    {a['classification']:<14}{det['head']:<11}"
                   f"{a['confidence_pct']:>6.1f}%"
                   f"{a['latitude']:>13.6f}{a['longitude']:>13.6f}"

@@ -1,0 +1,31 @@
+# Everything needed to run the test suites and the linter, minus the model.
+#
+# torch and ultralytics are a ~2 GB install and are only needed by the handful
+# of tests that actually run a checkpoint - the API, the contract, the registry,
+# the risk scoring and the recovery planner are all exercised without them. The
+# one end-to-end inference test skips itself when ultralytics is absent.
+#
+#   py -3.11 -m venv .venv
+#   .venv\Scripts\activate
+#   pip install -r requirements-dev.txt
+#   pytest
+#
+# For the full run, add -r requirements.txt on top of this.
+
+fastapi>=0.115,<1.0
+sqlalchemy>=2.0,<3.0
+python-multipart>=0.0.9,<1.0
+pydantic>=2.7,<3.0
+python-dotenv>=1.0,<2.0
+pyjwt>=2.9,<3.0
+argon2-cffi>=23.1,<26.0
+alembic>=1.13,<2.0
+redis>=5.0,<7.0
+
+numpy
+pyyaml
+pillow
+
+httpx>=0.27,<1.0
+pytest>=8.0,<9.0
+ruff==0.14.2

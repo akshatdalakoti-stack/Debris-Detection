@@ -1,12 +1,15 @@
 import json
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+
+from ml.heatmap import build as build_heatmap
+from ml.heatmap import to_geojson as heatmap_to_geojson
+from ml.registry import Entry as MLEntry
 
 from ..db import get_db
 from ..deps import require_viewer
 from ..models import RegistryEntry
-from ml.registry import Entry as MLEntry
-from ml.heatmap import build as build_heatmap, to_geojson as heatmap_to_geojson
 
 router = APIRouter(prefix="/api/registry", tags=["registry"],
                    dependencies=[Depends(require_viewer)])
@@ -75,12 +78,12 @@ def get_heatmap(db: Session = Depends(get_db)):
     active_entries = db.query(RegistryEntry).filter(
         RegistryEntry.status.in_(["present", "unconfirmed"])
     ).all()
-    
+
     ml_entries = [_to_ml_entry(e) for e in active_entries]
-    
+
     # We could also provide a risk_scores dict if we joined with the detections table to get max risk.
     # For now, let's just pass the entries to the heatmap builder.
     cells = build_heatmap(ml_entries)
     geojson = heatmap_to_geojson(cells)
-    
+
     return geojson

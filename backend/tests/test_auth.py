@@ -10,9 +10,8 @@ from __future__ import annotations
 import os
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.main import app
+from fastapi.testclient import TestClient
 
 ADMIN = {"email": os.environ["BOOTSTRAP_ADMIN_EMAIL"],
          "password": os.environ["BOOTSTRAP_ADMIN_PASSWORD"]}

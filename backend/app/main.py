@@ -1,22 +1,18 @@
 from __future__ import annotations
 
+import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-import logging
-import os
-
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import models
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .routers import (auth, jobs, surveys, reports, registry, recovery,
-                      active_learning)
-
+from .routers import active_learning, auth, jobs, recovery, registry, reports, surveys
 
 # Nothing in this service logged anything, so a failure in production left no
 # trace to read. LOG_LEVEL raises or lowers it without a code change.

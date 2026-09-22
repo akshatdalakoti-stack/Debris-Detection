@@ -31,8 +31,7 @@ before anyone has looked at it.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, asdict
-from pathlib import Path
+from dataclasses import asdict, dataclass
 
 import numpy as np
 
@@ -125,20 +124,21 @@ def rank_for_annotation(models: dict, images: list[str], top_k: int = 50,
     informative first - the order an analyst should work through.
     """
     import numpy as np
+
     from ml.interfaces import ReferencePreprocessor
-    
+
     pre = ReferencePreprocessor()
     out: list[Candidate] = []
-    
+
     for path in images:
         try:
             sonar = pre.load(path)
             img = sonar.image
-            
+
             # Convert grayscale to 3-channel for YOLO
             if len(img.shape) == 2:
                 img = np.stack((img,)*3, axis=-1)
-                
+
             per_head: dict[str, list[float]] = {}
             for name, model in models.items():
                 r = model.predict(img, conf=conf, verbose=False)[0]

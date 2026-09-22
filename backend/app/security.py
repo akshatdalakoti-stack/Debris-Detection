@@ -12,7 +12,7 @@ expiry is kept short rather than long.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
@@ -54,7 +54,7 @@ def verify_password(password: str, hashed: str) -> tuple[bool, str | None]:
 def create_access_token(subject: str, role: str,
                         expires_minutes: int | None = None) -> str:
     minutes = expires_minutes or settings.access_token_minutes
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": subject,
         "role": role,

@@ -1,0 +1,44 @@
+# Tooling config only - the package is run from the repository root, not
+# installed, so there is no [project] table here.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["frontend", "backend/alembic/versions", ".venv", "data", "weights"]
+
+[tool.ruff.lint]
+# Deliberately not the full set. These are the rules that catch real mistakes -
+# a name that does not exist, an import that is not used, a mutable default -
+# rather than the ones that argue about house style.
+select = [
+    "E",      # pycodestyle
+    "F",      # pyflakes: undefined names, unused imports
+    "W",      # whitespace
+    "I",      # import ordering
+    "B",      # bugbear: mutable defaults, loop-variable capture
+    "UP",     # pyupgrade: syntax that 3.11 supersedes
+    "C4",     # comprehension rewrites
+    "RUF",    # ruff's own
+]
+ignore = [
+    "E501",   # line length is reported by the formatter, not worth failing on
+    "B008",   # Depends()/Query() in a default is the FastAPI idiom
+    "RUF001", # en dashes in operator-facing strings are deliberate
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests reach into modules mid-file on purpose, to pick up monkeypatched state.
+"**/tests/**" = ["E402"]
+"tests/**" = ["E402"]
+# conftest sets environment variables that settings reads at import time, so
+# the imports genuinely have to come after them.
+"backend/tests/conftest.py" = ["E402"]
+# Puts the repository root on sys.path before importing ml/, so it can be run
+# as a script from inside demo/.
+"demo/pipeline.py" = ["E402"]
+
+[tool.pytest.ini_options]
+# Both suites, from the repository root: the ML package and the backend app
+# both have to be importable.
+pythonpath = [".", "backend"]
+testpaths = ["tests", "backend/tests"]

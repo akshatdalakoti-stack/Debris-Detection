@@ -35,7 +35,7 @@ def evaluate(weights: str, data: str, split: str, area_km2: float | None,
     res = model.val(data=str(ROOT / data), split=split, conf=conf, iou=iou,
                     plots=True, verbose=False)
 
-    names = getattr(res, "names", None) or {i: c for i, c in enumerate(CLASSES)}
+    names = getattr(res, "names", None) or dict(enumerate(CLASSES))
     per_class = {}
     for i, cls_id in enumerate(getattr(res.box, "ap_class_index", [])):
         per_class[names[int(cls_id)]] = {
@@ -106,8 +106,8 @@ def to_markdown(s: dict) -> str:
 def contact_sheets(weights: str, data: str, split: str, out_dir: Path, n: int) -> None:
     """A grid of true positives, false positives and misses. Deck material and
     the fastest way to see what the model is actually confused by."""
-    from ultralytics import YOLO
     from PIL import Image
+    from ultralytics import YOLO
 
     cfg = yaml.safe_load((ROOT / data).read_text())
     base = (ROOT / data).parent / cfg["path"]

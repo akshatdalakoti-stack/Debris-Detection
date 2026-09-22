@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..deps import get_current_user, require_admin
-from ..models import utc_now, ROLES, User
+from ..models import ROLES, User, utc_now
 from ..security import create_access_token, hash_password, verify_password
 
 log = logging.getLogger(__name__)

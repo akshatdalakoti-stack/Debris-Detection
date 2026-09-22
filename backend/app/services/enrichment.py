@@ -22,8 +22,10 @@ from threading import Lock
 
 import redis
 
+from ml.enrich import Context, enrich_detection
+from ml.enrich import to_dict as context_to_dict
+
 from ..config import settings
-from ml.enrich import Context, enrich_detection, to_dict as context_to_dict
 
 log = logging.getLogger(__name__)
 

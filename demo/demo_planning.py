@@ -17,11 +17,11 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from ml.registry import Registry                      # noqa: E402
-from ml.recovery import plan_recovery, day_plan       # noqa: E402
 from ml.heatmap import build, summary, write_geojson  # noqa: E402
-from ml.risk import score_detection                   # noqa: E402
-from ml.mapview import render                         # noqa: E402
+from ml.mapview import render  # noqa: E402
+from ml.recovery import day_plan, plan_recovery  # noqa: E402
+from ml.registry import Registry  # noqa: E402
+from ml.risk import score_detection  # noqa: E402
 
 
 def rule(title):

@@ -21,7 +21,7 @@ snagged. Anyone deploying this should replace them with their own crew's times.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 # Hours on site once the team is in the water, by object type.
 ON_SITE_HOURS = {
@@ -101,7 +101,7 @@ def plan_recovery(hazard_id: str, cls: str, *, depth_m: float | None = None,
                     method=f"identify before recovery - inspect by {method}",
                     transit_hours=transit_hours, setup_hours=SETUP_HOURS,
                     on_site_hours=0.5, total_hours=None,
-                    notes=depth_notes + [
+                    notes=[*depth_notes,
                         "class is unidentified: inspect and classify before a "
                         "recovery crew is tasked. An unknown object on this "
                         "coast may be ordnance."])

@@ -16,7 +16,7 @@ import json
 import platform
 import random
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -95,7 +95,7 @@ def train(config_path: str, overrides: dict, notes: str = "") -> dict:
     ckpt = Path(results.save_dir) / "weights" / "best.pt"
     row = {
         "run_id": run_id,
-        "started_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "started_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "config": config_path,
         "config_hash": chash,
         "dataset_version": data_cfg.get("dataset_version", "?"),

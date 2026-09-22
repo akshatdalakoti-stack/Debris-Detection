@@ -1,7 +1,7 @@
 import logging
 
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -29,8 +29,8 @@ def rank_images(req: RankRequest, db: Session = Depends(get_db)):
     of the API has to start on a host that has neither.
     """
     try:
+        from ml.active import annotation_budget_note, rank_for_annotation
         from ml.pipeline import load_models
-        from ml.active import rank_for_annotation, annotation_budget_note
     except ImportError as exc:
         log.exception("active learning dependencies are missing")
         raise HTTPException(

@@ -5,11 +5,12 @@ import logging
 
 from sqlalchemy import delete
 
-from ..config import settings
-from ..db import SessionLocal
-from ..models import utc_now, Detection, Job
 from ml.inference import run_inference
 from ml.risk import score_detection
+
+from ..config import settings
+from ..db import SessionLocal
+from ..models import Detection, Job, utc_now
 from .enrichment import cached_enrich
 from .registry import RegistryService
 
@@ -31,7 +32,7 @@ def process_job(job_id: int) -> None:
 
         job.progress = 30
         db.commit()
-        
+
         cfg = {"output_dir": str(settings.overlays_dir)}
         result = run_inference(job.file.storage_path, config=cfg)
 
@@ -41,10 +42,10 @@ def process_job(job_id: int) -> None:
         for item in result["detections"]:
             x, y, width, height = item["bbox"]
             lat, lon = item.get("lat"), item.get("lon")
-            
+
             ctx = cached_enrich(lat, lon)
             risk = score_detection(item["class"], item["confidence"], ctx)
-            
+
             db.add(
                 Detection(
                     job_id=job.id,

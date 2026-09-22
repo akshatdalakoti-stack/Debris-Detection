@@ -26,7 +26,7 @@ import json
 import math
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 TIMEOUT = 15

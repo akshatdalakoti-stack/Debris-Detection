@@ -19,8 +19,8 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 
-from ml.pipeline import load_models                                # noqa: E402
-from ml.active import rank_for_annotation, annotation_budget_note  # noqa: E402
+from ml.active import annotation_budget_note, rank_for_annotation  # noqa: E402
+from ml.pipeline import load_models  # noqa: E402
 
 
 def main() -> int:

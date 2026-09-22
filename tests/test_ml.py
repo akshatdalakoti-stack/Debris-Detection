@@ -17,7 +17,8 @@ import pytest
 
 from ml.contract import CLASSES, ContractError, Detection, validate_result
 from ml.enrich import PORTS, enrich_detection, haversine_km, nearest_port
-from ml.heatmap import build as build_heatmap, to_geojson
+from ml.heatmap import build as build_heatmap
+from ml.heatmap import to_geojson
 from ml.recovery import (
     INSPECT_FIRST,
     NOT_RECOVERABLE,
@@ -282,6 +283,7 @@ def test_a_stale_path_in_the_config_file_falls_back(tmp_path, monkeypatch):
     """Unlike the environment override, a stale line in a checked-in config is
     worth stepping over: the shipped heads are the right answer."""
     import yaml as _yaml
+
     from ml.inference import load_config
 
     monkeypatch.delenv("SIH_ML_WEIGHTS", raising=False)

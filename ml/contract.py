@@ -10,7 +10,7 @@ Any change here must be announced in the group BEFORE it is pushed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 CONTRACT_VERSION = "1.0.0"
@@ -55,7 +55,7 @@ class Detection:
         return d
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "Detection":
+    def from_dict(d: dict[str, Any]) -> Detection:
         d = dict(d)
         d["cls"] = d.pop("class")
         return Detection(**d)

@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The settings object reads these once at import time, so they have to exist
+  # before pytest collects anything.
+  SIH_SECRET_KEY: ci-only-signing-key-long-enough-for-hs256-abcdefgh
+  ENVIRONMENT: development
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff==0.14.2
+      - run: ruff check .
+
+  test:
+    name: tests (no model)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      # Everything except torch and ultralytics. The API, the contract, the
+      # registry, the risk scoring and the recovery planner are all testable
+      # without a model, and this lane stays under a minute.
+      - name: Install
+        run: pip install -r requirements-dev.txt
+      # The one end-to-end inference test skips itself here and runs in the
+      # lane below, which has the model. -rs lists what skipped and why.
+      - name: Test
+        run: pytest -q -rs
+
+  test-with-model:
+    name: tests (with model)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      # CPU wheels: no CUDA, and small enough for a hosted runner. The
+      # checkpoints are in the repository, so nothing else has to be fetched.
+      - name: Install
+        run: |
+          pip install -r requirements-dev.txt
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu torch torchvision ultralytics pyxtf
+      # The end-to-end test skips itself when ultralytics is absent. That is
+      # right in the lane above and would be a silent hole in this one, so
+      # check the import is really there before trusting a green run.
+      - name: Check the model stack is importable
+        run: python -c "import torch, ultralytics; print(torch.__version__, ultralytics.__version__)"
+      - name: Test
+        run: pytest -q -rs

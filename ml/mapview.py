@@ -13,7 +13,6 @@ worth looking at here is the relationship between hazards, not the coastline.
 from __future__ import annotations
 
 import html
-import json
 from pathlib import Path
 
 W, H, PAD = 900, 620, 60

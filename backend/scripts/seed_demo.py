@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-
-from sqlalchemy import select
-
 from app.config import settings
 from app.db import Base, SessionLocal, engine
 from app.models import Detection, Job, Survey, SurveyFile, utc_now
 from app.services.inference import run_fake_inference
+from sqlalchemy import select
 
 
 def seed_demo() -> int:
