@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -39,6 +40,8 @@ from ml.pipeline import HEADS
 _ROOT = Path(__file__).resolve().parents[1]
 _CONFIG_PATH = _ROOT / "configs" / "inference.yaml"
 _DETECTORS: dict[str, tuple[Detector, float]] | None = None
+
+log = logging.getLogger(__name__)
 
 
 # Which heads ship, and the confidence each runs at, comes from ml.pipeline so
@@ -188,6 +191,12 @@ def run_inference(file_path: str, config: dict | None = None,
     report("parsed", 10)
     sonar = pre.load(str(src))
 
+    # Which sensor produced this, and were the loaded heads trained on it.
+    # detect_sensor() existed and had nothing calling it, so a forward-looking
+    # frame was handed to two side-scan heads with nothing said about it - and
+    # a model off its own sensor is close to useless rather than merely worse.
+    sensor_report = _check_sensor(sonar, detectors)
+
     report("preprocessed", 30)
     tiles = pre.tile(
         sonar,
@@ -234,11 +243,45 @@ def run_inference(file_path: str, config: dict | None = None,
         overlay_path=overlay_path,
         model_version="+".join(sorted(d.version for d, _ in detectors.values())),
         coverage=_coverage(sonar),
+        sensor=sensor_report,
     ).to_dict()
 
     validate_result(result)   # never hand the backend an off-contract payload
     report("stored", 100)
     return result
+
+
+def _check_sensor(sonar, detectors: dict) -> dict[str, object] | None:
+    """Compare the imagery against what the loaded heads were trained on.
+
+    Advisory, never a veto: the check is 98.7% accurate on 226 images, and the
+    failures are side-scan frames that arrive letterboxed with dark borders.
+    Refusing to run on a 1-in-77 misread would be worse than running and saying
+    so. Returns None when there is nothing to compare against - a single pinned
+    checkpoint carries no sensor label.
+    """
+    from ml.router import detect_sensor
+
+    head_sensors = {HEADS[name]["sensor"] for name in detectors if name in HEADS}
+    if not head_sensors:
+        return None
+
+    routing = detect_sensor(sonar.image)
+    matches = routing.sensor in head_sensors
+    if not matches:
+        log.warning(
+            "%s looks like %s imagery but the loaded heads are trained on %s - "
+            "detections from this file are unreliable. %s",
+            sonar.image_id, routing.sensor, "/".join(sorted(head_sensors)),
+            routing.reason,
+        )
+    return {
+        "detected": routing.sensor,
+        "confident": routing.confident,
+        "heads_match": matches,
+        "trained_on": sorted(head_sensors),
+        "reason": routing.reason,
+    }
 
 
 def _coverage(sonar) -> dict[str, float] | None:

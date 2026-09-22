@@ -20,10 +20,16 @@ WEIGHTS_DIR = Path(os.getenv("SIH_WEIGHTS_DIR") or ROOT / "weights")
 # confident everywhere - a threshold sweep on the held-out test split put its
 # best F1 at 0.20, where precision is 0.42 and recall 0.33. The wreck model is
 # sharper and 0.25 is comfortable.
+# `sensor` is what each head was trained on. Both that ship are side-scan -
+# SCTD wrecks and Ghost Pot SSS - so nothing here can process a
+# forward-looking frame competently, and ml/router.py exists to notice when it
+# is being asked to.
 HEADS: dict[str, dict] = {
     "wreck": {"weights": WEIGHTS_DIR / "sidescan_model.pt", "conf": 0.25,
+              "sensor": "sidescan",
               "about": "shipwrecks, submerged aircraft"},
     "ghostgear": {"weights": WEIGHTS_DIR / "ghostgear_model.pt", "conf": 0.20,
+                  "sensor": "sidescan",
                   "about": "derelict crab pots (ghost fishing gear)"},
 }
 

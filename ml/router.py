@@ -1,15 +1,20 @@
-"""Sensor routing: pick the right model for the imagery you were handed.
+"""Sensor check: is this imagery the kind the loaded models were trained on.
 
-The system carries two trained heads because no single dataset covers both
-halves of the problem:
+A model is accurate on its own sensor and close to useless on the other - a
+measured 1-in-39 hit rate when the small-debris (forward-looking) model is
+pointed at side-scan. That cuts both ways, and it is why this check exists.
 
-  side-scan  -> shipwrecks, submerged aircraft, large man-made anomalies
-  forward-looking -> tyres, bottles, cans, chain and other small debris
+What actually ships is two side-scan heads - SCTD wrecks and Ghost Pot ghost
+gear - so there is no forward-looking head to route to, and the choice the
+original version of this docstring described (route, do not ensemble) is not
+the choice in front of the pipeline. Running two side-scan heads over
+side-scan imagery is a different decision, and a defensible one: they find
+different objects.
 
-Each is accurate on its own sensor and close to useless on the other - a
-measured 1-in-39 hit rate when the small-debris model is pointed at side-scan.
-So the pipeline routes rather than ensembles: running both everywhere would
-add false positives without adding correct detections.
+The live risk is the other one. A forward-looking frame handed to this system
+gets two side-scan heads and used to get them silently. run_inference now asks
+this module first and reports the answer, so a mismatch is visible rather than
+arriving as a confident, wrong detection list.
 
 Routing uses image geometry. Forward-looking sonar renders as a fan with the
 transducer at the apex, leaving large black corners. Side-scan fills the frame

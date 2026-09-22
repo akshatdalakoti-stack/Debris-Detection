@@ -494,3 +494,74 @@ def test_a_coverage_block_is_contract_valid_and_optional():
         validate_result(payload(coverage={"area_m2": -1}))
     with pytest.raises(ContractError):
         validate_result(payload(coverage="0.06 km2"))
+
+
+# --- sensor check ----------------------------------------------------------
+
+class _FakeDetector:
+    version = "fake-0"
+
+
+def test_the_sensor_check_passes_on_sidescan_imagery():
+    """A waterfall fills the frame edge to edge, which is what both shipped
+    heads were trained on."""
+    import numpy as np
+
+    from ml.inference import _check_sensor
+    from ml.interfaces import SonarImage
+
+    # bright everywhere: no dark corners, so not a fan
+    sonar = SonarImage(image=np.full((400, 400), 180, np.uint8), image_id="line")
+    report = _check_sensor(sonar, {"wreck": (_FakeDetector(), 0.25)})
+
+    assert report["detected"] == "sidescan"
+    assert report["heads_match"] is True
+    assert report["trained_on"] == ["sidescan"]
+
+
+def test_a_forward_looking_frame_is_flagged_not_silently_processed(caplog):
+    """The gap this closes: an FLS fan used to get two side-scan heads with
+    nothing said, and a model off its own sensor is close to useless rather
+    than merely worse."""
+    import logging
+
+    import numpy as np
+
+    from ml.inference import _check_sensor
+    from ml.interfaces import SonarImage
+
+    # a fan: bright centre, dark corners
+    image = np.zeros((400, 400), np.uint8)
+    yy, xx = np.mgrid[0:400, 0:400]
+    image[((xx - 200) ** 2 + (yy - 200) ** 2) < 150**2] = 200
+    sonar = SonarImage(image=image, image_id="fan")
+
+    with caplog.at_level(logging.WARNING):
+        report = _check_sensor(sonar, {"wreck": (_FakeDetector(), 0.25)})
+
+    assert report["detected"] == "fls"
+    assert report["heads_match"] is False
+    assert "unreliable" in caplog.text
+
+
+def test_a_pinned_checkpoint_has_no_sensor_to_compare_against():
+    """--weights bypasses HEADS, so there is no label to check. None, rather
+    than a guess."""
+    import numpy as np
+
+    from ml.inference import _check_sensor
+    from ml.interfaces import SonarImage
+
+    sonar = SonarImage(image=np.full((400, 400), 180, np.uint8), image_id="x")
+    assert _check_sensor(sonar, {"custom": (_FakeDetector(), 0.25)}) is None
+
+
+def test_a_sensor_block_is_contract_valid_and_optional():
+    validate_result(payload())
+    validate_result(payload(sensor=None))
+    validate_result(payload(sensor={"detected": "sidescan", "confident": True,
+                                    "heads_match": True}))
+    with pytest.raises(ContractError):
+        validate_result(payload(sensor={"detected": 7}))
+    with pytest.raises(ContractError):
+        validate_result(payload(sensor={"heads_match": "yes"}))

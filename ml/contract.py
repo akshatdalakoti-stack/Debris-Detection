@@ -4,12 +4,15 @@ This module is the single source of truth for the shape of everything the ML
 track hands to the backend. Harshit imports `validate_result` in his tests;
 if his code passes and this module is unchanged, the integration cannot drift.
 
-CONTRACT VERSION: 1.1.0
+CONTRACT VERSION: 1.2.0
 Any change here must be announced in the group BEFORE it is pushed.
 
-1.1.0 adds `coverage`, an optional top-level key. Additive only: it has a
-default, validate_result does not require it, and a 1.0.0 payload still
-validates unchanged. Nothing that reads the 1.0.0 keys needs to change.
+1.1.0 adds `coverage`, an optional top-level key.
+1.2.0 adds `sensor`, the same way.
+
+Both are additive only: each has a default, validate_result does not require
+either, and a 1.0.0 payload still validates unchanged. Nothing that reads the
+1.0.0 keys needs to change.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.2.0"
 
 # Frozen class list. Index == YOLO class id. Must match configs/data.yaml.
 CLASSES: list[str] = [
@@ -78,6 +81,9 @@ class InferenceResult:
     # no navigation, which is the honest answer - a bare .png has no geography
     # and therefore no area. Keys: swath_m, track_length_m, area_m2.
     coverage: dict[str, float] | None = None
+    # What sensor the imagery looks like, and whether the loaded heads were
+    # trained on it. Keys: detected, confident, heads_match, reason.
+    sensor: dict[str, object] | None = None
     contract_version: str = CONTRACT_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -90,6 +96,7 @@ class InferenceResult:
             "overlay_path": self.overlay_path,
             "model_version": self.model_version,
             "coverage": self.coverage,
+            "sensor": self.sensor,
             "contract_version": self.contract_version,
         }
 
@@ -162,3 +169,13 @@ def validate_result(payload: dict[str, Any]) -> None:
                 continue
             if not isinstance(val, (int, float)) or val < 0:
                 raise ContractError(f"coverage.{key} must be a non-negative number")
+
+    sensor = payload.get("sensor")
+    if sensor is not None:
+        if not isinstance(sensor, dict):
+            raise ContractError("sensor must be an object or null")
+        if "detected" in sensor and not isinstance(sensor["detected"], str):
+            raise ContractError("sensor.detected must be a string")
+        for key in ("confident", "heads_match"):
+            if key in sensor and not isinstance(sensor[key], bool):
+                raise ContractError(f"sensor.{key} must be a boolean")
