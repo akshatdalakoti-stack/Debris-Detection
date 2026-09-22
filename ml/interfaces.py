@@ -29,7 +29,13 @@ class NavRecord:
 
 @dataclass
 class SonarImage:
-    """A preprocessed, ground-range-corrected waterfall image, uint8, HxW."""
+    """A preprocessed waterfall image, uint8, HxW.
+
+    Pixels are in SLANT range, as the ping headers record them: nothing here
+    resamples a row onto a ground-range axis. The conversion happens per pixel
+    at georeferencing time - see ground_range_m() - because it depends on the
+    towfish altitude at that ping, which varies down the line.
+    """
 
     image: np.ndarray
     image_id: str
@@ -155,19 +161,64 @@ class ReferencePostProcessor:
         for d in detections:
             x, y, w, h = d["bbox"]
             row = int(min(max(y + h / 2.0, 0), sonar.height - 1))
-            size_m = round(w * sonar.ground_range_per_px_m, 2)
 
             if not sonar.nav:
-                out.append({**d, "size_m": size_m, "frame_index": row})
+                # No per-ping geometry to work from, so the flat scale is all
+                # there is. Position stays None; only the size is reported.
+                out.append({**d, "size_m": round(w * sonar.ground_range_per_px_m, 2),
+                            "frame_index": row})
                 continue
 
             nav = _nearest_nav(sonar.nav, row)
-            across_px = (x + w / 2.0) - centre_x           # +starboard, -port
-            across_m = across_px * sonar.ground_range_per_px_m
+            # Both edges of the box, converted separately: ground range is not
+            # linear in pixels, so the seabed width of a box depends on where
+            # in the swath it sits. Near nadir the grazing angle is steep and a
+            # small step in slant range is a large step across the seabed, so
+            # the same 40 px box covers MORE ground there than at the outer
+            # edge - which is why the nadir region looks compressed in a
+            # slant-range waterfall.
+            left = ground_range_m(x - centre_x, centre_x,
+                                  nav.slant_range_m, nav.altitude_m)
+            right = ground_range_m(x + w - centre_x, centre_x,
+                                   nav.slant_range_m, nav.altitude_m)
+            size_m = round(abs(right - left), 2)
+
+            across_m = ground_range_m((x + w / 2.0) - centre_x, centre_x,
+                                      nav.slant_range_m, nav.altitude_m)
             lat, lon = offset_latlon(nav.lat, nav.lon, nav.heading_deg + 90.0, across_m)
             out.append({**d, "lat": lat, "lon": lon, "size_m": size_m,
                         "frame_index": row})
         return out
+
+
+def ground_range_m(across_px: float, half_width_px: float,
+                   slant_range_m: float, altitude_m: float) -> float:
+    """Across-track distance over the seabed for a pixel offset from nadir.
+
+    Signed: negative to port, positive to starboard, matching the pixel offset.
+
+    A side-scan row is sampled in SLANT range - time of flight - so a pixel
+    halfway along the row is halfway to the maximum slant range, not halfway
+    across the seabed. What the seabed distance actually is comes from the
+    right triangle the pulse travels:
+
+        ground = sqrt(slant^2 - altitude^2)
+
+    This used to be applied once per line, to the outer edge only, producing a
+    single metres-per-pixel that was then multiplied by the pixel offset. That
+    is the altitude = 0 case of this function, and it is wrong everywhere else:
+    it overstates the distance of everything, and most severely near nadir,
+    where the true ground range collapses towards zero while the linear version
+    keeps reporting a steady number of metres per pixel.
+
+    Inside the water column - where the slant range has not yet reached the
+    seabed - the return is 0.0. Nothing is imaged there to be at a distance.
+    """
+    if slant_range_m <= 0 or half_width_px <= 0:
+        return 0.0
+    slant = abs(across_px) / half_width_px * slant_range_m
+    ground = math.sqrt(max(slant**2 - altitude_m**2, 0.0))
+    return math.copysign(ground, across_px)
 
 
 def offset_latlon(lat: float, lon: float, bearing_deg: float, distance_m: float

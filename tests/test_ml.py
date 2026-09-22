@@ -343,3 +343,90 @@ def test_a_report_renders_to_csv_without_a_file():
     header, *rows = text.strip().splitlines()
     assert header.split(",") == CSV_FIELDS
     assert len(rows) == len(report["anomalies"]) == 1
+
+
+# --- across-track geometry -------------------------------------------------
+#
+# A side-scan row is sampled in slant range - time of flight - so pixels are
+# not evenly spaced over the seabed. The scale used to be computed once per
+# line from the outer edge and then multiplied by the pixel offset, which is
+# the altitude = 0 case and overstates everything inside it.
+
+def _ground(px, half=512.0, slant=75.0, alt=12.0):
+    from ml.interfaces import ground_range_m
+    return ground_range_m(px, half, slant, alt)
+
+
+def test_the_outer_edge_is_unchanged_by_the_correction():
+    """The old flat scale was derived from the edge, so the edge is the one
+    place the two agree - far-field positions do not move."""
+    import math
+    half, slant, alt = 512.0, 75.0, 12.0
+    flat = (2 * math.sqrt(slant**2 - alt**2)) / (2 * half)
+    assert _ground(half) == pytest.approx(half * flat)
+
+
+def test_zero_altitude_degenerates_to_the_flat_scale():
+    """Flying on the seabed is the only case where pixels are linear in ground
+    range, and it is the assumption the old code made everywhere."""
+    from ml.interfaces import ground_range_m
+    assert ground_range_m(200, 512.0, 75.0, 0.0) == pytest.approx(200 * (75.0 / 512.0))
+
+
+def test_the_correction_shrinks_distances_towards_nadir():
+    """Where it matters: the flat scale put an object 100 px off centre at
+    14.5 m when it is really 8.4 m out - against a registry that matches
+    hazards within 25 m."""
+    import math
+    flat = (2 * math.sqrt(75.0**2 - 12.0**2)) / 1024
+    for px in (100, 200, 350):
+        assert _ground(px) < px * flat
+    assert px * flat - _ground(px) < 1.0          # and converges at the edge
+
+
+def test_nothing_is_imaged_inside_the_water_column():
+    """Closer than the towfish altitude, the pulse has not reached the seabed."""
+    assert _ground(40) == 0.0                      # 12/75 * 512 = 82 px
+    assert _ground(-40) == 0.0
+    assert _ground(200) != 0.0
+
+
+def test_the_sign_follows_the_channel():
+    """Negative to port, positive to starboard - the bearing depends on it."""
+    assert _ground(-200) == pytest.approx(-_ground(200))
+    assert _ground(-200) < 0 < _ground(200)
+
+
+def test_a_box_covers_more_seabed_near_nadir_than_at_the_edge():
+    """Same box in pixels, different amount of seabed - which is why size_m has
+    to come from both edges rather than one flat multiplier.
+
+    Near nadir the grazing angle is steep, so a small step in slant range is a
+    large step across the seabed. That is the compression you see in the middle
+    of a slant-range waterfall, and it means a flat metres-per-pixel understates
+    the size of anything sitting there."""
+    near = _ground(140) - _ground(100)
+    far = _ground(500) - _ground(460)
+    assert near > far
+
+
+def test_georeferencing_places_a_nadir_detection_closer_than_the_flat_scale():
+    """End to end through the postprocessor, not just the helper."""
+    import numpy as np
+
+    from ml.interfaces import ReferencePostProcessor, SonarImage
+    from ml.registry import haversine_m
+    from ml.survey import attach_track
+
+    sonar = SonarImage(image=np.zeros((200, 1024), np.uint8), image_id="line")
+    attach_track(sonar)
+    nav = sonar.nav[100]
+
+    # a 40 px box 100 px to starboard of nadir
+    det = {"class": "net", "confidence": 0.9, "bbox": [612.0, 100.0, 40.0, 20.0]}
+    out = ReferencePostProcessor().georeference([det], sonar)[0]
+
+    offset_m = haversine_m((nav.lat, nav.lon), (out["lat"], out["lon"]))
+    flat_m = 120 * sonar.ground_range_per_px_m     # box centre, old scale
+    assert offset_m < flat_m
+    assert out["size_m"] > 0

@@ -46,7 +46,7 @@ class Detection:
     bbox: list[float]           # [x, y, w, h] top-left origin, full-image pixels
     lat: float | None = None    # WGS84; None when the file carries no navigation
     lon: float | None = None
-    size_m: float | None = None  # along-track length estimate in metres
+    size_m: float | None = None  # across-track extent of the box, in metres
     frame_index: int | None = None  # ping/row index of the box centre
 
     def to_dict(self) -> dict[str, Any]:
