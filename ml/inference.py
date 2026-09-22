@@ -53,9 +53,19 @@ def load_config(path: str | Path | None = None) -> dict:
     # shipped heads rather than carrying a stale path forward.
     if cfg.get("weights") and not Path(cfg["weights"]).exists():
         cfg.pop("weights")
-    # env overrides let the backend container point at its own paths
-    if os.getenv("SIH_ML_WEIGHTS"):
-        cfg["weights"] = os.environ["SIH_ML_WEIGHTS"]
+    # env overrides let the backend container point at its own paths.
+    # Checked after it is applied, not before: the existence check above used to
+    # run first, so SIH_ML_WEIGHTS naming a path that does not exist sailed
+    # straight through it. Unlike a stale line in the config file, this is an
+    # explicit instruction from whoever started the process - falling back to
+    # the shipped heads would run something other than what they asked for.
+    env_weights = os.getenv("SIH_ML_WEIGHTS")
+    if env_weights:
+        if not Path(env_weights).exists():
+            raise FileNotFoundError(
+                f"SIH_ML_WEIGHTS is set to {env_weights!r}, which does not exist"
+            )
+        cfg["weights"] = env_weights
     if os.getenv("SIH_ML_OUTPUT_DIR"):
         cfg["output_dir"] = os.environ["SIH_ML_OUTPUT_DIR"]
     return cfg
@@ -91,6 +101,11 @@ def get_detectors(cfg: dict | None = None) -> dict[str, tuple[Detector, float]]:
     override = cfg.get("conf_threshold")
 
     if cfg.get("weights"):
+        # load_config() validates the config-file and environment routes into
+        # this, but a caller passing config={"weights": ...} directly bypasses
+        # both, so check here too rather than letting Detector decide.
+        if not Path(cfg["weights"]).exists():
+            raise FileNotFoundError(f"weights not found: {cfg['weights']}")
         conf = 0.25 if override is None else override
         _DETECTORS = {"custom": (Detector(weights=cfg["weights"], conf=conf, **common), conf)}
         return _DETECTORS

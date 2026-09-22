@@ -258,3 +258,74 @@ def test_heatmap_polygons_are_closed_and_in_range():
         assert ring[0] == ring[-1], "polygon ring is not closed"
         for lon, lat in ring:
             assert -180 <= lon <= 180 and -90 <= lat <= 90
+
+
+# --- weights loading -------------------------------------------------------
+#
+# Every case here ends the same way if it goes wrong: the pipeline runs a mock
+# detector, invents plausible boxes, and the backend stores them as real
+# detections. Nothing downstream can tell the difference, so the checks have to
+# happen at the point the weights are resolved.
+
+def test_a_missing_weights_env_var_is_an_error_not_a_fallback(tmp_path, monkeypatch):
+    """SIH_ML_WEIGHTS is an explicit instruction. Pointing it at nothing used to
+    pass the existence check - which ran before the override was applied - and
+    land in mock mode."""
+    from ml.inference import load_config
+
+    monkeypatch.setenv("SIH_ML_WEIGHTS", str(tmp_path / "not-here.pt"))
+    with pytest.raises(FileNotFoundError, match="SIH_ML_WEIGHTS"):
+        load_config(tmp_path / "no-such-config.yaml")
+
+
+def test_a_stale_path_in_the_config_file_falls_back(tmp_path, monkeypatch):
+    """Unlike the environment override, a stale line in a checked-in config is
+    worth stepping over: the shipped heads are the right answer."""
+    import yaml as _yaml
+    from ml.inference import load_config
+
+    monkeypatch.delenv("SIH_ML_WEIGHTS", raising=False)
+    cfg_path = tmp_path / "inference.yaml"
+    cfg_path.write_text(_yaml.safe_dump({"weights": str(tmp_path / "gone.pt"),
+                                         "imgsz": 640}))
+    cfg = load_config(cfg_path)
+    assert "weights" not in cfg
+    assert cfg["imgsz"] == 640
+
+
+def test_a_detector_without_weights_refuses_to_run(tmp_path):
+    from ml.detector import Detector
+
+    with pytest.raises(FileNotFoundError):
+        Detector(weights=str(tmp_path / "absent.pt"))
+    with pytest.raises(FileNotFoundError):
+        Detector(weights=None)
+
+
+def test_mock_mode_has_to_be_asked_for_and_still_warns():
+    from ml.detector import Detector
+
+    with pytest.warns(RuntimeWarning, match="INVENTED"):
+        detector = Detector(weights=None, allow_mock=True)
+    assert detector.kind == "mock"
+    assert detector.version == "mock-0"
+
+
+def test_the_checkpoint_fingerprint_is_computed_once(tmp_path, monkeypatch):
+    """`version` stamps every inference result and the checkpoints are ~22 MB,
+    so hashing on each access meant re-reading 44 MB per request."""
+    from ml.detector import Detector
+
+    checkpoint = tmp_path / "head.pt"
+    checkpoint.write_bytes(b"not a real checkpoint, but it hashes the same way")
+    # Skip the ultralytics load; this is about the fingerprint, not the model.
+    monkeypatch.setattr(Detector, "_load",
+                        lambda self, path: setattr(self, "_kind", "torch"))
+
+    detector = Detector(weights=str(checkpoint))
+    first = detector.version
+    assert first.startswith("head-")
+
+    # If it were still hashing on demand, losing the file would break this.
+    checkpoint.unlink()
+    assert detector.version == first

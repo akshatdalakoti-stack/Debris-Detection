@@ -45,27 +45,38 @@ class Detector:
     """Wraps whatever backend actually runs the model."""
 
     def __init__(self, weights: str | None, conf: float = 0.25, iou: float = 0.45,
-                 imgsz: int = INPUT_IMAGE_SIZE):
+                 imgsz: int = INPUT_IMAGE_SIZE, allow_mock: bool = False):
         self.weights = weights
         self.conf = conf
         self.iou = iou
         self.imgsz = imgsz
         self._impl = None
         self._kind = "mock"
+        self._version: str | None = None
         if weights and Path(weights).exists():
             self._load(Path(weights))
-        else:
+        elif allow_mock:
             # Mock mode is for unblocking the backend before a model exists.
-            # It must never be reached silently: well-formed JSON describing
-            # objects that were never detected is worse than a hard failure,
-            # because it looks like a working integration.
+            # Even asked for deliberately it says so, because well-formed JSON
+            # describing objects that were never detected reads exactly like a
+            # working integration.
             import warnings
             warnings.warn(
                 f"Detector running in MOCK mode - detections are INVENTED. "
                 f"weights={weights!r} "
-                f"({'missing' if weights else 'not configured'}). "
-                f"Set SIH_ML_WEIGHTS or pass a real checkpoint.",
+                f"({'missing' if weights else 'not configured'}).",
                 RuntimeWarning, stacklevel=2,
+            )
+        else:
+            # Reaching mock mode by accident is the failure this guards. A
+            # warning was not enough: warnings are printed once, to stderr, and
+            # a worker process is exactly where nobody reads them - so invented
+            # detections would flow into the database looking entirely real.
+            raise FileNotFoundError(
+                f"no model weights at {weights!r} "
+                f"({'missing' if weights else 'not configured'}). "
+                f"Set SIH_ML_WEIGHTS or pass a real checkpoint; pass "
+                f"allow_mock=True only if invented detections are what you want."
             )
 
     @property
@@ -74,11 +85,25 @@ class Detector:
 
     @property
     def version(self) -> str:
+        """`<checkpoint stem>-<first 8 hex of its sha256>`.
+
+        Cached: this is read once per inference to stamp the result, and the
+        checkpoints are ~22 MB each, so recomputing it per call meant hashing
+        44 MB on every request. Weights do not change under a running process -
+        loading a different checkpoint means constructing a new Detector.
+        """
         if self._kind == "mock":
             return "mock-0"
-        p = Path(self.weights)
-        digest = hashlib.sha256(p.read_bytes()).hexdigest()[:8]
-        return f"{p.stem}-{digest}"
+        if self._version is None:
+            path = Path(self.weights)
+            digest = hashlib.sha256()
+            with path.open("rb") as fh:
+                # Streamed rather than read_bytes(): no reason to hold the whole
+                # checkpoint in memory just to fingerprint it.
+                for block in iter(lambda: fh.read(1024 * 1024), b""):
+                    digest.update(block)
+            self._version = f"{path.stem}-{digest.hexdigest()[:8]}"
+        return self._version
 
     def _load(self, path: Path) -> None:
         # ultralytics runs .pt and .onnx through the same predict API, NMS decode
