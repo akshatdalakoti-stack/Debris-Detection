@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ml.heatmap import build as build_heatmap
@@ -9,7 +9,7 @@ from ml.registry import Entry as MLEntry
 
 from ..db import get_db
 from ..deps import require_viewer
-from ..models import RegistryEntry
+from ..models import Detection, Job, RegistryEntry, SurveyFile
 
 router = APIRouter(prefix="/api/registry", tags=["registry"],
                    dependencies=[Depends(require_viewer)])
@@ -87,3 +87,56 @@ def get_heatmap(db: Session = Depends(get_db)):
     geojson = heatmap_to_geojson(cells)
 
     return geojson
+
+
+@router.get("/{hazard_id}/detections")
+def hazard_detections(
+    hazard_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Every detection that was folded into this hazard, newest first.
+
+    A registry entry says a hazard is at a position and has been seen N times.
+    Until detections carried the link, there was no way to get from that back
+    to the surveys, the jobs or the boxes behind it - so "show me why you think
+    there is a net here" had no answer.
+    """
+    entry = db.query(RegistryEntry).filter(
+        RegistryEntry.hazard_id == hazard_id).first()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Hazard not found")
+
+    query = (db.query(Detection, Job.id, SurveyFile.filename, SurveyFile.survey_id)
+             .join(Job, Detection.job_id == Job.id)
+             .join(SurveyFile, Job.file_id == SurveyFile.id)
+             .filter(Detection.registry_entry_id == entry.id))
+    total = query.count()
+    rows = query.order_by(Detection.id.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "hazard_id": entry.hazard_id,
+        "class": entry.class_name,
+        "times_seen": entry.times_seen,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "detections": [
+            {
+                "id": d.id,
+                "job_id": job_id,
+                "survey_id": survey_id,
+                "filename": filename,
+                "class": d.class_name,
+                "confidence": d.confidence,
+                "bbox": [d.x, d.y, d.width, d.height],
+                "lat": d.lat,
+                "lon": d.lon,
+                "risk_score": d.risk_score,
+                "risk_band": d.risk_band,
+                "detected_at": d.created_at,
+            }
+            for d, job_id, filename, survey_id in rows
+        ],
+    }

@@ -80,14 +80,23 @@ class RegistryService:
 
     def reconcile(self, detections: list[dict], survey: str,
                   when: str | None = None,
-                  covered: list[str] | None = None) -> None:
-        """Fold one survey's detections into the registry."""
+                  covered: list[str] | None = None) -> list[RegistryEntry | None]:
+        """Fold one survey's detections into the registry.
+
+        Returns one entry per input detection, aligned with it, so the caller
+        can record which hazard each detection became. None where a detection
+        carried no position and could not be tracked. This was computed and
+        discarded before, which is why nothing downstream could get from a
+        hazard back to the imagery that found it.
+        """
         when = when or date.today().isoformat()
         matched: set[str] = set()
 
+        resolved: list[RegistryEntry | None] = []
         for d in detections:
             lat, lon = d.get("lat"), d.get("lon")
             if lat is None or lon is None:
+                resolved.append(None)
                 continue
             cls = d.get("class", "unidentified")
             conf = float(d.get("confidence", 0.0))
@@ -106,6 +115,7 @@ class RegistryService:
                     hit.surveys = json.dumps(surveys)
 
                 matched.add(hit.hazard_id)
+                resolved.append(hit)
             else:
                 new_entry = self._add_with_hazard_id(
                     class_name=cls,
@@ -117,6 +127,7 @@ class RegistryService:
                     surveys=json.dumps([survey]),
                 )
                 matched.add(new_entry.hazard_id)
+                resolved.append(new_entry)
 
         # anything covered by this survey but not matched counts as a miss
         all_live = self.db.query(RegistryEntry).filter(
@@ -148,6 +159,7 @@ class RegistryService:
                               "miss is not evidence of removal")
 
         self.db.commit()
+        return resolved
 
     def mark_recovered(self, hazard_id: str, when: str | None = None) -> bool:
         e = self.db.query(RegistryEntry).filter(RegistryEntry.hazard_id == hazard_id).first()

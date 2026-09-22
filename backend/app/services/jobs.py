@@ -51,6 +51,7 @@ def process_job(job_id: int) -> None:
         job.progress = 95
         db.commit()
         db.execute(delete(Detection).where(Detection.job_id == job.id))
+        rows: list[Detection] = []
         for item in result["detections"]:
             x, y, width, height = item["bbox"]
             lat, lon = item.get("lat"), item.get("lon")
@@ -58,7 +59,7 @@ def process_job(job_id: int) -> None:
             ctx = cached_enrich(lat, lon)
             risk = score_detection(item["class"], item["confidence"], ctx)
 
-            db.add(
+            rows.append(
                 Detection(
                     job_id=job.id,
                     class_name=item["class"],
@@ -80,8 +81,17 @@ def process_job(job_id: int) -> None:
                 )
             )
 
+        db.add_all(rows)
+
         registry_service = RegistryService(db)
-        registry_service.reconcile(result["detections"], survey=job.file.survey.name)
+        entries = registry_service.reconcile(result["detections"],
+                                             survey=job.file.survey.name)
+        # Reconciliation is already working out which hazard each detection is;
+        # recording it is what lets a hazard be traced back to the imagery and
+        # the boxes that found it.
+        for row, entry in zip(rows, entries, strict=True):
+            if entry is not None:
+                row.registry_entry_id = entry.id
 
         job.overlay_path = result["overlay_path"]
         job.processing_ms = result["processing_ms"]

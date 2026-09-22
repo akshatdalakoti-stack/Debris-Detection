@@ -119,6 +119,13 @@ class Detection(Base):
     risk_band: Mapped[str | None] = mapped_column(String(20), nullable=True)
     risk_reasons: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON serialized list
 
+    # Which registry hazard this detection was folded into. Reconciliation
+    # already works this out and used to throw it away, so "which detections
+    # produced this hazard", and the images behind them, were unanswerable.
+    # Null for a detection with no position - it cannot be tracked.
+    registry_entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("registry_entries.id"), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
     job: Mapped[Job] = relationship(back_populates="detections")

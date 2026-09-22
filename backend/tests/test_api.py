@@ -177,3 +177,32 @@ def test_readiness_reports_503_when_the_database_is_gone(client: TestClient) -> 
         assert client.get("/api/health").status_code == 200
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+def test_a_hazard_can_be_traced_back_to_its_detections(client: TestClient) -> None:
+    """A registry entry says a hazard is at a position and has been seen N
+    times; this is what says why."""
+    from app.db import SessionLocal
+    from app.models import RegistryEntry
+    from app.services.registry import RegistryService
+
+    db = SessionLocal()
+    try:
+        service = RegistryService(db)
+        service.reconcile(
+            [{"class": "net", "confidence": 0.77, "bbox": [10, 10, 20, 20],
+              "lat": 12.34, "lon": 74.56}],
+            survey="trace-survey",
+        )
+        hazard_id = db.query(RegistryEntry).filter(
+            RegistryEntry.lat == 12.34).one().hazard_id
+    finally:
+        db.close()
+
+    response = client.get(f"/api/registry/{hazard_id}/detections")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["hazard_id"] == hazard_id
+    assert set(body) >= {"total", "limit", "offset", "detections"}
+
+    assert client.get("/api/registry/HZ-99999/detections").status_code == 404

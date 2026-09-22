@@ -104,3 +104,28 @@ def test_a_wreck_is_never_presumed_removed(db):
     entry = db.query(RegistryEntry).one()
     assert entry.status == "unconfirmed"
     assert entry.status != "gone"
+
+
+def test_reconcile_reports_which_hazard_each_detection_became(db):
+    """The link the worker records. Aligned with the input list, None where a
+    detection had no position to track."""
+    service = RegistryService(db)
+    entries = service.reconcile(
+        [detection(12.0, 74.0),
+         {"class": "net", "confidence": 0.5, "bbox": [0, 0, 5, 5],
+          "lat": None, "lon": None},
+         detection(13.0, 75.0)],
+        survey="s1",
+    )
+
+    assert len(entries) == 3
+    assert entries[1] is None                     # ungeotagged
+    assert entries[0] is not None and entries[2] is not None
+    assert entries[0].hazard_id != entries[2].hazard_id
+
+
+def test_a_revisit_points_at_the_same_hazard(db):
+    service = RegistryService(db)
+    first = service.reconcile([detection(12.0, 74.0)], survey="s1")[0]
+    second = service.reconcile([detection(12.0 + 10 / 111_320, 74.0)], survey="s2")[0]
+    assert first.id == second.id
