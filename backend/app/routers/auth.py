@@ -7,6 +7,7 @@ import re
 import time
 from collections import defaultdict, deque
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
@@ -17,6 +18,7 @@ from ..db import get_db
 from ..deps import get_current_user, require_admin
 from ..models import ROLES, User, utc_now
 from ..security import create_access_token, hash_password, verify_password
+from ..services.cache import cache_is_up, note_cache_failure, note_cache_success, redis_client
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -25,11 +27,22 @@ MIN_PASSWORD_LENGTH = 12
 
 # Argon2 is deliberately slow, which limits guessing on its own, but not enough
 # to leave the endpoint open. A sliding window per client address caps attempts.
-# This is per process: with several workers the effective limit is the window
-# times the worker count. Good enough for a single deployment; a shared counter
-# in Redis is what a fleet would need.
+#
+# The window lives in Redis, because it used to live in a process dictionary:
+# with four uvicorn workers that was four independent counters and an effective
+# limit of forty attempts, and a restart cleared all of them. Redis is already
+# a dependency here - the queue and the enrichment cache both use it.
+#
+# A sorted set rather than INCR with an expiry, so it stays a *sliding* window.
+# A fixed window lets an attacker spend the full allowance at the end of one
+# and again at the start of the next, which is twice the limit in quick
+# succession, right where it matters least to be generous.
 LOGIN_MAX_ATTEMPTS = 10
 LOGIN_WINDOW_SECONDS = 300
+
+# Fallback for when Redis is unreachable. Per process and therefore weaker, but
+# the alternative is either refusing every sign-in because the cache is down,
+# or not limiting at all.
 _attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
@@ -42,25 +55,65 @@ def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _rate_limit(request: Request) -> None:
-    key = _client_key(request)
+def _too_many(retry_in: int, key: str) -> HTTPException:
+    log.warning("sign-in rate limit hit from %s", key)
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many sign-in attempts. Try again shortly.",
+        headers={"Retry-After": str(max(retry_in, 1))},
+    )
+
+
+def _rate_limit_in_process(key: str) -> None:
     now = time.monotonic()
     window = _attempts[key]
     while window and now - window[0] > LOGIN_WINDOW_SECONDS:
         window.popleft()
     if len(window) >= LOGIN_MAX_ATTEMPTS:
-        retry_in = int(LOGIN_WINDOW_SECONDS - (now - window[0]))
-        log.warning("sign-in rate limit hit from %s", key)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many sign-in attempts. Try again shortly.",
-            headers={"Retry-After": str(max(retry_in, 1))},
-        )
+        raise _too_many(int(LOGIN_WINDOW_SECONDS - (now - window[0])), key)
     window.append(now)
 
 
+def _rate_limit(request: Request) -> None:
+    key = _client_key(request)
+    redis_key = f"login-attempts:{key}"
+    now = time.time()
+
+    if not cache_is_up():
+        _rate_limit_in_process(key)
+        return
+
+    try:
+        pipe = redis_client.pipeline()
+        pipe.zremrangebyscore(redis_key, 0, now - LOGIN_WINDOW_SECONDS)
+        pipe.zcard(redis_key)                      # count BEFORE this attempt
+        pipe.zadd(redis_key, {f"{now}:{uuid4()}": now})
+        pipe.expire(redis_key, LOGIN_WINDOW_SECONDS)
+        _, recent, _, _ = pipe.execute()
+        note_cache_success()
+    except Exception as exc:
+        # Redis down. Fall back rather than locking everyone out of sign-in.
+        note_cache_failure(exc)
+        _rate_limit_in_process(key)
+        return
+
+    if recent >= LOGIN_MAX_ATTEMPTS:
+        oldest = redis_client.zrange(redis_key, 0, 0, withscores=True)
+        retry_in = int(LOGIN_WINDOW_SECONDS - (now - oldest[0][1])) if oldest else 1
+        raise _too_many(retry_in, key)
+
+
 def _clear_rate_limit(request: Request) -> None:
-    _attempts.pop(_client_key(request), None)
+    """A success clears the counter, so one fat-fingered password does not
+    count against someone for the rest of the window."""
+    key = _client_key(request)
+    _attempts.pop(key, None)
+    if not cache_is_up():
+        return
+    try:
+        redis_client.delete(f"login-attempts:{key}")
+    except Exception as exc:
+        note_cache_failure(exc)
 
 # Deliberately not pydantic's EmailStr. It rejects reserved domains such as
 # .local, and an internally deployed tool is exactly where accounts look like

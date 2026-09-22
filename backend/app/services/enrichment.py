@@ -20,16 +20,12 @@ import json
 import logging
 from threading import Lock
 
-import redis
-
 from ml.enrich import Context, enrich_detection
 from ml.enrich import to_dict as context_to_dict
 
-from ..config import settings
+from .cache import cache_is_up, note_cache_failure, note_cache_success, redis_client
 
 log = logging.getLogger(__name__)
-
-redis_client = redis.Redis.from_url(settings.redis_url)
 
 CACHE_TTL_SECONDS = 86_400 * 7
 # ~4 decimal places is about 11 m at the equator, finer than the registry's own
@@ -39,20 +35,6 @@ _PROCESS_CACHE_MAX = 4096
 
 _process_cache: dict[tuple[float, float], Context | None] = {}
 _process_lock = Lock()
-
-# Redis being down should not turn every lookup into a network call to GEBCO,
-# and it should not fill the log with one line per detection either. Logged
-# once per process, then the code carries on without the shared layer.
-_redis_warned = False
-
-
-def _warn_once(exc: Exception) -> None:
-    global _redis_warned
-    if not _redis_warned:
-        _redis_warned = True
-        log.warning("enrichment cache unavailable (%s) - falling back to live "
-                    "lookups for the rest of this process", exc)
-
 
 def cached_enrich(lat: float | None, lon: float | None) -> Context | None:
     """Context for a position, or None when there is no position to enrich."""
@@ -66,21 +48,24 @@ def cached_enrich(lat: float | None, lon: float | None) -> Context | None:
 
     key = f"enrich:{key_parts[0]}:{key_parts[1]}"
     context: Context | None = None
-    try:
-        cached = redis_client.get(key)
-        if cached:
-            context = Context(**json.loads(cached))
-    except Exception as exc:                     # redis down, or a stale shape
-        _warn_once(exc)
+    if cache_is_up():
+        try:
+            cached = redis_client.get(key)
+            note_cache_success()
+            if cached:
+                context = Context(**json.loads(cached))
+        except Exception as exc:                 # redis down, or a stale shape
+            note_cache_failure(exc)
 
     if context is None:
         context = enrich_detection(lat, lon, navigation_is_real=True)
-        if context is not None:
+        if context is not None and cache_is_up():
             try:
                 redis_client.setex(key, CACHE_TTL_SECONDS,
                                    json.dumps(context_to_dict(context)))
+                note_cache_success()
             except Exception as exc:
-                _warn_once(exc)
+                note_cache_failure(exc)
 
     with _process_lock:
         if len(_process_cache) >= _PROCESS_CACHE_MAX:

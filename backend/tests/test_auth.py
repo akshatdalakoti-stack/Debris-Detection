@@ -313,3 +313,105 @@ def test_an_unrankable_role_is_denied(client):
     token = token_for(client, "odd-role@sih.local", "a-long-enough-password-1")
     # Not even the lowest requirement, which is what an unranked role must mean.
     assert client.get("/api/registry", headers=auth(token)).status_code == 403
+
+
+# --- rate limiting ---------------------------------------------------------
+#
+# The window used to live in a process dictionary, so four uvicorn workers were
+# four independent counters and an effective limit of forty. It lives in Redis
+# now. The suite points at a closed port so every other test takes the
+# documented fallback, which leaves these to cover the Redis path itself.
+
+class _FakeRedis:
+    """Enough of a sorted set for the sliding window, in memory."""
+
+    def __init__(self):
+        self.sets: dict[str, dict[str, float]] = {}
+        self.calls = 0
+
+    def pipeline(self):
+        return _FakePipeline(self)
+
+    def zrange(self, key, start, stop, withscores=False):
+        items = sorted(self.sets.get(key, {}).items(), key=lambda kv: kv[1])
+        chosen = items[start:stop + 1] if stop >= 0 else items[start:]
+        return chosen if withscores else [m for m, _ in chosen]
+
+    def delete(self, key):
+        self.sets.pop(key, None)
+
+
+class _FakePipeline:
+    def __init__(self, store):
+        self.store = store
+        self.ops = []
+
+    def zremrangebyscore(self, key, lo, hi):
+        def _prune():
+            bucket = self.store.sets.setdefault(key, {})
+            for member in [m for m, score in bucket.items() if lo <= score <= hi]:
+                del bucket[member]
+        self.ops.append(_prune)
+
+    def zcard(self, key):
+        self.ops.append(lambda: len(self.store.sets.setdefault(key, {})))
+
+    def zadd(self, key, mapping):
+        def _add():
+            self.store.sets.setdefault(key, {}).update(mapping)
+        self.ops.append(_add)
+
+    def expire(self, key, seconds):
+        self.ops.append(lambda: True)
+
+    def execute(self):
+        self.store.calls += 1
+        return [op() for op in self.ops]
+
+
+def test_the_shared_window_throttles_after_the_limit(client, monkeypatch):
+    from app.routers import auth as auth_module
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(auth_module, "redis_client", fake)
+    monkeypatch.setattr(auth_module, "cache_is_up", lambda: True)
+
+    codes = [
+        client.post("/api/auth/login",
+                    json={"email": ADMIN["email"], "password": "wrong"}).status_code
+        for _ in range(auth_module.LOGIN_MAX_ATTEMPTS + 2)
+    ]
+    assert 429 in codes, codes
+    assert fake.calls > 0, "the Redis path was never taken"
+
+
+def test_a_success_clears_the_shared_window(client, monkeypatch):
+    from app.routers import auth as auth_module
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(auth_module, "redis_client", fake)
+    monkeypatch.setattr(auth_module, "cache_is_up", lambda: True)
+
+    for _ in range(3):
+        client.post("/api/auth/login",
+                    json={"email": ADMIN["email"], "password": "wrong"})
+    assert fake.sets.get("login-attempts:testclient")
+
+    assert client.post("/api/auth/login", json=ADMIN).status_code == 200
+    assert not fake.sets.get("login-attempts:testclient")
+
+
+def test_the_breaker_stops_retrying_a_dead_redis(monkeypatch):
+    """Each attempt at an unreachable Redis costs a connection timeout, and
+    these paths run on every sign-in. The first failure should be the only
+    expensive one until the cooldown lapses."""
+    from app.services import cache
+
+    monkeypatch.setattr(cache, "_closed_until", 0.0)
+    assert cache.cache_is_up()
+
+    cache.note_cache_failure(RuntimeError("connection refused"))
+    assert not cache.cache_is_up()
+
+    cache.note_cache_success()
+    assert cache.cache_is_up()

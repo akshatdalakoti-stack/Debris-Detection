@@ -9,6 +9,14 @@ os.environ["DATA_DIR"] = str(test_data_dir)
 os.environ["DATABASE_URL"] = f"sqlite:///{test_data_dir / 'test.db'}"
 os.environ["QUEUE_MODE"] = "local"
 
+# Deliberately unreachable. The sign-in rate limiter and the enrichment cache
+# both keep state in Redis, and a real one on the developer's machine would
+# carry that state between runs - a suite that passes once and then throttles
+# itself on the next run. Pointing at a closed port makes every test take the
+# documented fallback path, the same one CI takes, and the Redis path itself is
+# covered with a stub in test_auth.py.
+os.environ["REDIS_URL"] = "redis://127.0.0.1:6399/0"
+
 # Every endpoint except /api/health now needs a signed-in caller, so the suite
 # needs an account to sign in as. Set before the app is imported, because the
 # settings object reads the environment once at import time.
