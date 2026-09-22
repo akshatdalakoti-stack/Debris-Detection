@@ -51,12 +51,29 @@ def get_current_user(
 
 
 def require_role(minimum: str):
-    """Dependency factory: caller must hold `minimum` or better."""
+    """Dependency factory: caller must hold `minimum` or better.
+
+    The role is read from the database via get_current_user, never from the
+    token's own `role` claim. A token outlives a demotion - it is signed once
+    and valid for hours - so trusting the claim would let someone keep the
+    access they held when they signed in.
+    """
     if minimum not in ROLES:
         raise ValueError(f"unknown role {minimum!r}")
     floor = ROLES.index(minimum)
 
     def _check(user: User = Depends(get_current_user)) -> User:
+        try:
+            held = ROLES.index(user.role)
+        except ValueError:
+            # A role the code does not know about. It cannot be ranked, so it
+            # cannot clear a floor - deny rather than guess where it sits.
+            held = -1
+        if held < floor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This action needs the {minimum} role or higher",
+            )
         return user
 
     return _check

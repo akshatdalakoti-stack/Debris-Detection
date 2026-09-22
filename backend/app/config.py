@@ -57,6 +57,15 @@ class Settings:
         self.bootstrap_admin_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "")
         self.bootstrap_admin_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 
+        # Open sign-up. Convenient while someone is trying the project out
+        # locally, a hole once it is deployed, because the account it creates is
+        # a real one. Off in production unless deliberately switched back on,
+        # and what it grants is "viewer" either way - see routers/auth.py.
+        default_self_registration = "false" if self.environment == "production" else "true"
+        self.allow_self_registration = os.getenv(
+            "ALLOW_SELF_REGISTRATION", default_self_registration
+        ).lower() in {"1", "true", "yes"}
+
         self.cors_origins = [
             origin.strip()
             for origin in os.getenv(

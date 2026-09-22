@@ -188,18 +188,36 @@ def change_password(body: PasswordChange, user: User = Depends(get_current_user)
 @router.post("/register", response_model=UserRead,
              status_code=status.HTTP_201_CREATED)
 def register(body: UserCreate, db: Session = Depends(get_db)) -> User:
+    """Open sign-up, when the deployment allows it.
+
+    This used to mint an admin, so that anyone evaluating the project could see
+    every screen. That also meant anyone who could reach the deployment could
+    take it over - create accounts, disable the real operators, read every
+    survey. An open endpoint cannot hand out privilege.
+
+    So: the role is always viewer, whatever the request body asks for, and the
+    endpoint is off by default in production. An admin promotes someone through
+    POST /api/auth/users/{id}/role once they know who they are.
+    """
+    if not settings.allow_self_registration:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Self-registration is disabled. Ask an administrator for an account.",
+        )
+
     email = body.email
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="An account with that email already exists")
 
-    # Force role to admin for self-registered accounts so anyone can evaluate the platform
-    user = User(email=email, full_name=body.full_name, role="admin",
+    # body.role is ignored on purpose - see the docstring. Honouring it would
+    # be the same hole with an extra step.
+    user = User(email=email, full_name=body.full_name, role="viewer",
                 password_hash=hash_password(body.password))
     db.add(user)
     db.commit()
     db.refresh(user)
-    log.info("user self-registered: %s", user.email)
+    log.info("user self-registered: %s (viewer)", user.email)
     return user
 
 

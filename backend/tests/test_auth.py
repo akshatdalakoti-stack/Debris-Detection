@@ -255,3 +255,62 @@ def test_role_changes_take_effect(client):
     promoted = token_for(client, "promoted@sih.local", "a-viewer-password-1")
     assert client.post("/api/surveys", headers=auth(promoted),
                        json={"name": "after"}).status_code == 201
+
+
+# --- self-registration -----------------------------------------------------
+#
+# This endpoint used to create admins, on the reasoning that anyone evaluating
+# the project should see every screen. On anything reachable from a network
+# that is a takeover: register, then disable the real operators. These pin the
+# endpoint to the least privilege it can grant.
+
+def test_self_registration_grants_viewer_not_admin(client):
+    r = client.post("/api/auth/register", json={
+        "email": "self-signup@sih.local", "password": "a-long-enough-password-1",
+        "full_name": "Self Signup"})
+    assert r.status_code == 201, r.text
+    assert r.json()["role"] == "viewer"
+
+
+def test_self_registration_cannot_ask_for_a_higher_role(client):
+    """The body carries a role field because it is shared with the admin
+    create-user endpoint. Here it has to be ignored, not honoured."""
+    r = client.post("/api/auth/register", json={
+        "email": "would-be-admin@sih.local", "password": "a-long-enough-password-1",
+        "role": "admin"})
+    assert r.status_code == 201, r.text
+    assert r.json()["role"] == "viewer"
+
+    token = token_for(client, "would-be-admin@sih.local", "a-long-enough-password-1")
+    assert client.get("/api/auth/users", headers=auth(token)).status_code == 403
+
+
+def test_self_registration_can_be_switched_off(client, monkeypatch):
+    """What a production deployment runs with."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "allow_self_registration", False)
+    r = client.post("/api/auth/register", json={
+        "email": "too-late@sih.local", "password": "a-long-enough-password-1"})
+    assert r.status_code == 403
+
+
+def test_an_unrankable_role_is_denied(client):
+    """A role string the code does not know cannot be placed against the
+    viewer/analyst/admin ladder, so it must not clear any rung of it."""
+    from app.db import SessionLocal
+    from app.models import User
+    from app.security import hash_password
+
+    db = SessionLocal()
+    try:
+        db.add(User(email="odd-role@sih.local", full_name="Odd",
+                    role="superuser",          # not in ROLES
+                    password_hash=hash_password("a-long-enough-password-1")))
+        db.commit()
+    finally:
+        db.close()
+
+    token = token_for(client, "odd-role@sih.local", "a-long-enough-password-1")
+    # Not even the lowest requirement, which is what an unranked role must mean.
+    assert client.get("/api/registry", headers=auth(token)).status_code == 403
