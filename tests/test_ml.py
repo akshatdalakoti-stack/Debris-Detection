@@ -430,3 +430,23 @@ def test_georeferencing_places_a_nadir_detection_closer_than_the_flat_scale():
     flat_m = 120 * sonar.ground_range_per_px_m     # box centre, old scale
     assert offset_m < flat_m
     assert out["size_m"] > 0
+
+
+def test_every_harm_weight_is_either_a_contract_class_or_a_model_label():
+    """HARM carries model-native names - crab_pot, ship, aircraft - alongside
+    the contract ones. Nothing reaches scoring under those names: the detector
+    maps them (crab_pot -> net, ship/aircraft -> wreck) before the contract is
+    ever built. They are kept because each agrees with the weight of what it
+    maps to, so a native label arriving by another route still scores the same.
+    This pins that agreement, which is the only thing making them harmless."""
+    from ml.detector import NAME_TO_CONTRACT
+
+    for name, weight in HARM.items():
+        if name in CLASSES:
+            continue
+        assert name in NAME_TO_CONTRACT, f"{name!r} is in HARM but nothing maps it"
+        mapped = NAME_TO_CONTRACT[name]
+        assert HARM[mapped] == weight, (
+            f"{name!r} weighs {weight} but maps to {mapped!r} which weighs "
+            f"{HARM[mapped]} - the mapping would silently change the score"
+        )

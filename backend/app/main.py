@@ -5,13 +5,15 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from .config import settings
-from .db import Base, SessionLocal, engine
+from .db import Base, SessionLocal, engine, get_db
 from .routers import active_learning, auth, jobs, recovery, registry, reports, surveys
 
 # Nothing in this service logged anything, so a failure in production left no
@@ -120,4 +122,31 @@ async def validation_exception_handler(
 
 @app.get("/api/health", tags=["system"])
 def health() -> dict[str, str]:
+    """Liveness: is the process up and serving.
+
+    Deliberately cheap and dependency-free. The container HEALTHCHECK and
+    docker-compose's depends_on/service_healthy both hang off this, so making
+    it touch the database would mean a database blip took the API container
+    down with it - and restarting the API does not fix a database. Readiness
+    is a separate question, below.
+    """
     return {"status": "ok"}
+
+
+@app.get("/api/ready", tags=["system"])
+def ready(db: Session = Depends(get_db)) -> dict[str, str]:
+    """Readiness: can this instance actually serve a request.
+
+    Every endpoint but /api/health needs the database, so an instance that
+    cannot reach it should be taken out of a load balancer rather than handed
+    traffic it will only fail. 503 is what signals that.
+    """
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        log.exception("readiness check failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database is unavailable",
+        ) from None
+    return {"status": "ready"}

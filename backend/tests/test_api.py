@@ -148,3 +148,32 @@ def test_survey_report_csv_is_built_without_touching_disk(client: TestClient) ->
 
     # It used to write a NamedTemporaryFile(delete=False) and unlink it by hand.
     assert set(Path(tempfile.gettempdir()).glob("*.csv")) == before
+
+
+def test_health_is_cheap_and_readiness_checks_the_database(client: TestClient) -> None:
+    """Two different questions. The container HEALTHCHECK and compose's
+    depends_on hang off /api/health, so it must not fail when the database
+    does - restarting the API would not fix that. /api/ready is what a load
+    balancer should ask."""
+    assert client.get("/api/health").json() == {"status": "ok"}
+    assert client.get("/api/ready").json() == {"status": "ready"}
+
+
+def test_readiness_reports_503_when_the_database_is_gone(client: TestClient) -> None:
+    from app.db import get_db
+    from app.main import app
+
+    def broken_db():
+        class Dead:
+            def execute(self, *_a, **_k):
+                raise RuntimeError("connection refused")
+        yield Dead()
+
+    app.dependency_overrides[get_db] = broken_db
+    try:
+        response = client.get("/api/ready")
+        assert response.status_code == 503
+        # Liveness is unaffected: the process itself is fine.
+        assert client.get("/api/health").status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_db, None)

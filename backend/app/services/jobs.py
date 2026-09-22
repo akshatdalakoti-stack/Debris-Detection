@@ -25,18 +25,30 @@ def process_job(job_id: int) -> None:
             return
 
         job.status = "processing"
-        job.progress = 10
+        job.progress = 5
         job.started_at = utc_now()
         job.error = None
         db.commit()
 
-        job.progress = 30
-        db.commit()
-
         cfg = {"output_dir": str(settings.overlays_dir)}
-        result = run_inference(job.file.storage_path, config=cfg)
 
-        job.progress = 80
+        def report(stage: str, pct: int) -> None:
+            """Drive the progress bar from the pipeline's own stages.
+
+            run_inference has taken a progress_cb since it was written and
+            nothing ever passed one, so the bar went 10 -> 30 -> 80 -> 100
+            regardless of what was happening - the long part, tiling and
+            running both heads over every tile, was a single jump. Capped below
+            100 because the detections still have to be enriched, scored and
+            written after the model is done.
+            """
+            job.progress = min(pct, 90)
+            db.commit()
+            log.debug("job %s: %s (%d%%)", job_id, stage, pct)
+
+        result = run_inference(job.file.storage_path, config=cfg, progress_cb=report)
+
+        job.progress = 95
         db.commit()
         db.execute(delete(Detection).where(Detection.job_id == job.id))
         for item in result["detections"]:
