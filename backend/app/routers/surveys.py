@@ -74,14 +74,50 @@ async def upload_sonar_file(
     db.add(pending_file)
     db.flush()
     try:
-        destination, size_bytes = await save_upload(file, survey.id, pending_file.id)
+        destination, size_bytes, digest = await save_upload(
+            file, survey.id, pending_file.id)
     except StorageError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # Same bytes, same survey, already here. Re-uploading was storing a second
+    # copy of the file and running the whole pipeline over it again for an
+    # identical answer, which on a survey line is minutes of GPU and a
+    # duplicate set of detections feeding the registry as if it were a second
+    # sighting - so the same hazard looked twice-confirmed on one survey.
+    existing = db.scalars(
+        select(SurveyFile)
+        .where(SurveyFile.survey_id == survey.id,
+               SurveyFile.content_sha256 == digest,
+               SurveyFile.id != pending_file.id)
+        .order_by(SurveyFile.id)
+    ).first()
+
+    if existing is not None:
+        destination.unlink(missing_ok=True)
+        db.delete(pending_file)
+
+        latest = db.scalars(
+            select(Job).where(Job.file_id == existing.id).order_by(Job.id.desc())
+        ).first()
+        # A previous attempt that failed is the one case worth doing again:
+        # re-uploading is the obvious way to ask for a retry, and refusing it
+        # would leave no way to ask at all.
+        if latest is None or latest.status == "failed":
+            latest = Job(file=existing, status="queued", progress=0)
+            db.add(latest)
+            db.commit()
+            db.refresh(latest)
+            enqueue_job(latest.id, background_tasks)
+        else:
+            db.commit()
+        return UploadResponse(file_id=existing.id, job_id=latest.id,
+                              status=latest.status)
+
     pending_file.filename = destination.name.split("_", 1)[-1]
     pending_file.size_bytes = size_bytes
     pending_file.storage_path = str(destination)
+    pending_file.content_sha256 = digest
     job = Job(file=pending_file, status="queued", progress=0)
     db.add(job)
     db.commit()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -18,7 +19,13 @@ def safe_filename(filename: str | None) -> str:
     return candidate or "upload.bin"
 
 
-async def save_upload(upload: UploadFile, survey_id: int, file_id: int) -> tuple[Path, int]:
+async def save_upload(upload: UploadFile, survey_id: int,
+                      file_id: int) -> tuple[Path, int, str]:
+    """Stream an upload to disk. Returns (path, bytes written, sha256).
+
+    The digest is computed from the same chunks on the way past, so it costs
+    nothing extra and the file never has to be read back to identify it.
+    """
     filename = safe_filename(upload.filename)
     extension = Path(filename).suffix.lower().lstrip(".")
     if extension not in settings.allowed_extensions:
@@ -30,6 +37,7 @@ async def save_upload(upload: UploadFile, survey_id: int, file_id: int) -> tuple
     destination_dir.mkdir(parents=True, exist_ok=True)
     destination = destination_dir / f"{file_id}_{filename}"
     total = 0
+    digest = hashlib.sha256()
 
     try:
         with destination.open("wb") as output:
@@ -39,6 +47,7 @@ async def save_upload(upload: UploadFile, survey_id: int, file_id: int) -> tuple
                     raise StorageError(
                         f"File is too large. Maximum size is {settings.max_upload_size_bytes} bytes"
                     )
+                digest.update(chunk)
                 output.write(chunk)
     except Exception:
         destination.unlink(missing_ok=True)
@@ -50,4 +59,4 @@ async def save_upload(upload: UploadFile, survey_id: int, file_id: int) -> tuple
         destination.unlink(missing_ok=True)
         raise StorageError("Uploaded file is empty")
 
-    return destination, total
+    return destination, total, digest.hexdigest()

@@ -62,6 +62,10 @@ class SurveyFile(Base):
     format: Mapped[str] = mapped_column(String(20), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # sha256 of the bytes, so the same file uploaded twice to one survey is
+    # recognised instead of stored and processed again. Nullable because rows
+    # written before this existed have no digest to backfill.
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
     survey: Mapped[Survey] = relationship(back_populates="files")
@@ -169,4 +173,13 @@ Index(
     RegistryEntry.class_name,
     RegistryEntry.lat,
     RegistryEntry.lon,
+)
+
+
+# "has this survey already had this exact file" is the question the upload
+# endpoint asks, in that order.
+Index(
+    "ix_files_survey_content",
+    SurveyFile.survey_id,
+    SurveyFile.content_sha256,
 )

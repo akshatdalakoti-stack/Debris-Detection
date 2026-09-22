@@ -206,3 +206,76 @@ def test_a_hazard_can_be_traced_back_to_its_detections(client: TestClient) -> No
     assert set(body) >= {"total", "limit", "offset", "detections"}
 
     assert client.get("/api/registry/HZ-99999/detections").status_code == 404
+
+
+def _jpeg(colour=(30, 30, 30)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color=colour).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_the_same_file_uploaded_twice_is_stored_once(client: TestClient) -> None:
+    """Re-uploading used to store a second copy and run the pipeline again,
+    and the duplicate detections reached the registry as a second independent
+    sighting - so one hazard looked twice-confirmed by one survey."""
+    survey_id = client.post("/api/surveys", json={"name": "Dedupe survey"}).json()["id"]
+    payload = _jpeg()
+
+    first = client.post(f"/api/surveys/{survey_id}/upload",
+                        files={"file": ("line.jpg", payload, "image/jpeg")})
+    second = client.post(f"/api/surveys/{survey_id}/upload",
+                         files={"file": ("line-again.jpg", payload, "image/jpeg")})
+
+    assert first.status_code == second.status_code == 202
+    assert second.json()["file_id"] == first.json()["file_id"]
+
+
+def test_different_content_is_a_different_file(client: TestClient) -> None:
+    survey_id = client.post("/api/surveys", json={"name": "Distinct survey"}).json()["id"]
+
+    first = client.post(f"/api/surveys/{survey_id}/upload",
+                        files={"file": ("a.jpg", _jpeg((10, 10, 10)), "image/jpeg")})
+    second = client.post(f"/api/surveys/{survey_id}/upload",
+                         files={"file": ("b.jpg", _jpeg((200, 40, 40)), "image/jpeg")})
+
+    assert first.json()["file_id"] != second.json()["file_id"]
+
+
+def test_the_same_file_in_another_survey_is_its_own_file(client: TestClient) -> None:
+    """Two surveys covering the same ground is a real thing to do, and the
+    second one is not a duplicate of the first."""
+    payload = _jpeg((70, 70, 70))
+    one = client.post("/api/surveys", json={"name": "Survey one"}).json()["id"]
+    two = client.post("/api/surveys", json={"name": "Survey two"}).json()["id"]
+
+    a = client.post(f"/api/surveys/{one}/upload",
+                    files={"file": ("x.jpg", payload, "image/jpeg")})
+    b = client.post(f"/api/surveys/{two}/upload",
+                    files={"file": ("x.jpg", payload, "image/jpeg")})
+
+    assert a.json()["file_id"] != b.json()["file_id"]
+
+
+def test_reuploading_a_failed_file_asks_for_a_retry(client: TestClient) -> None:
+    """Deduplicating must not make a failure permanent: re-uploading is the
+    obvious way to ask for another attempt."""
+    from app.db import SessionLocal
+    from app.models import Job
+
+    survey_id = client.post("/api/surveys", json={"name": "Retry survey"}).json()["id"]
+    payload = _jpeg((5, 90, 120))
+    first = client.post(f"/api/surveys/{survey_id}/upload",
+                        files={"file": ("retry.jpg", payload, "image/jpeg")})
+    job_id = first.json()["job_id"]
+
+    db = SessionLocal()
+    try:
+        db.get(Job, job_id).status = "failed"
+        db.commit()
+    finally:
+        db.close()
+
+    second = client.post(f"/api/surveys/{survey_id}/upload",
+                         files={"file": ("retry.jpg", payload, "image/jpeg")})
+    assert second.json()["file_id"] == first.json()["file_id"]   # same bytes
+    assert second.json()["job_id"] != job_id                      # new attempt
